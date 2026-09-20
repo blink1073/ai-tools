@@ -74,10 +74,9 @@ repo="$(pwd)"
 chmod +x sandbox/podbox sandbox/opencode-sandbox
 ln -sfn "$repo/sandbox/podbox" "$sandbox_bin/podbox"
 
-# opencode-sandbox drives podman. Link it only when podman is the container
-# runtime and Docker is absent, since Docker ships its own sandbox tooling.
-if command -v podman >/dev/null 2>&1 && ! command -v docker >/dev/null 2>&1; then
+# opencode-sandbox drives podman, so link it whenever podman is present. A
+# docker binary doesn't conflict: its name is distinct, and on some machines
+# `docker` is a shim for podman anyway.
+if command -v podman >/dev/null 2>&1; then
   ln -sfn "$repo/sandbox/opencode-sandbox" "$sandbox_bin/opencode-sandbox"
-else
-  rm -f "$sandbox_bin/opencode-sandbox"
 fi

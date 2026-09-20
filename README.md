@@ -19,8 +19,7 @@ Configuration and tooling for AI coding agents: Claude Code, OpenCode, and the
 ```
 
 Installs the Claude and OpenCode configuration, then links the sandbox CLI into
-`~/.local/bin`. `opencode-sandbox` is linked only when `podman` is installed and
-`docker` is not.
+`~/.local/bin`. `opencode-sandbox` is linked when `podman` is installed.
 
 ## Update
 

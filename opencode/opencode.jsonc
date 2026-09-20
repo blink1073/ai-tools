@@ -56,8 +56,8 @@
       "gh api repos/*/pulls/*/reviews*": "deny",
       "git add": "ask",
       "git add *": "ask",
-      "git commit": "deny",
-      "git commit *": "deny"
+      "git commit": "allow",
+      "git commit *": "allow"
     }
   }
 }
