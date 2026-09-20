@@ -1,0 +1,502 @@
+#!/usr/bin/env bash
+# podbox — an opinionated per-project podman sandbox, inspired by Docker Sandboxes.
+#
+#   podbox up [ARGS]      create the sandbox only if not already running, then
+#                         run it (container is torn down when the session exits)
+#   podbox create [ARGS]  create a container sandbox for the current directory
+#                         and drop you into an opencode session inside it
+#   podbox shell          exec an interactive bash shell in the running sandbox
+#   podbox exec CMD       run a command inside the running sandbox
+#   podbox build          build the base image (git/python/gh/opencode)
+#   podbox rm             stop, remove the sandbox container and its secrets
+#   podbox status         show the sandbox container state
+#   podbox code [ARGS]    re-enter an opencode session in the running sandbox
+#
+# ARGS are appended to the entry command (default `opencode --auto`), so
+# `opencode-sandbox --model provider/model --agent plan` runs
+# `opencode --auto --model provider/model --agent plan` inside the sandbox.
+#
+# Containers run from a locally built image, tagged podbox-base:latest, rather
+# than a stock base. It is built from sandbox/Containerfile on the first
+# `podbox create` (or explicitly with `podbox build`) and cached by podman, so
+# later sandboxes start without re-running apt-get. Override the tag with
+# PODBOX_IMAGE, but note the agent runs as an unprivileged user, so the image
+# must provide that user (default 'dev', see PODBOX_USER) with sudo.
+#
+# Secrets are delivered as podman secrets (mounted at /run/secrets), never as
+# environment variables, so they are not visible via `podman inspect` or /proc.
+#
+# The GitHub token is a read-only personal access token you supply on the host:
+#   GH_TOKEN_SANDBOX=github_pat_xxx podbox create
+# It is injected as a secret and used by git inside the sandbox through a small
+# credential helper. No host git credential helper (osxkeychain, gh) is shared.
+# GH_TOKEN_SANDBOX is the preferred name: unlike GH_TOKEN/GITHUB_TOKEN it is not
+# recognized by git or gh on the host, so exporting it in your shell is safe and
+# can never shadow your real read/write credentials.
+#
+# The fireworks API key is taken from your opencode auth store on the host,
+# falling back to the FIREWORKS_API_KEY env var:
+#   podbox create            (reads ~/.local/share/opencode/auth.json)
+#   FIREWORKS_API_KEY=...      podbox create   (explicit override)
+# It is mounted as a secret and exported into the shell via a profile snippet.
+#
+# The reviewer sub-agent runs on the host's heavy model (agent.reviewer.model in
+# ~/.config/opencode/opencode.jsonc). It uses the same provider as the pinned
+# model, so the fireworks key already covers it.
+#
+# opencode runs with --auto: it auto-approves every `ask` but still enforces
+# `deny`. To keep that safe, the sandbox config is generated from the pinned
+# model plus the permission rules in ~/.config/opencode/opencode.jsonc and
+# bind-mounted read-only, so the agent cannot rewrite its own rules. The host's
+# custom agents in ~/.config/opencode/agent/ are bind-mounted read-only too, so
+# `--agent reviewer` and `--agent pr-review` resolve inside. Override the entry
+# with PODBOX_ENTRY (e.g. PODBOX_ENTRY=opencode to require prompts).
+#
+# The agent session runs as an unprivileged user (default 'dev', override with
+# PODBOX_USER) that has passwordless sudo, so ordinary commands run without root
+# while system changes (package installs, etc.) still work via `sudo`. The user
+# is created in the base image; the opencode config is bind-mounted read-only
+# into its home.
+#
+# Each sandbox is capped at PODBOX_MEMORY (default 3g) and refuses to start when
+# PODBOX_MAX_SANDBOXES (default 4) are already running, so concurrent sessions
+# can't exhaust the podman VM and trigger the kernel OOM-killer. The defaults
+# assume a 12 GiB VM; size the VM accordingly (on the host):
+#   podman machine stop && podman machine set --memory 12288 && podman machine start
+
+set -euo pipefail
+
+NAME="${PODBOX_NAME:-$(basename "$PWD" | tr 'A-Z ' 'a-z-' | tr -cd '[:alnum:]_-')}"
+IMAGE="${PODBOX_IMAGE:-podbox-base:latest}"
+CONTAINERFILE="${PODBOX_CONTAINERFILE:-}"
+NETWORK="${PODBOX_NETWORK:-}"
+GITHUB_USER="${GITHUB_USER:-}"
+PODBOX_MODEL="${PODBOX_MODEL:-fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash}"
+PODBOX_ENTRY="${PODBOX_ENTRY:-opencode --auto}"
+PODBOX_MEMORY="${PODBOX_MEMORY:-3g}"
+PODBOX_MAX_SANDBOXES="${PODBOX_MAX_SANDBOXES:-4}"
+SANDBOX_USER="${PODBOX_USER:-dev}"
+SANDBOX_HOME="/home/$SANDBOX_USER"
+secret_gh="podbox-gh-token"
+secret_fw="podbox-fireworks"
+sandbox_label="podbox=1"
+
+die() { printf 'podbox: %s\n' "$*" >&2; exit 1; }
+
+info() { printf 'podbox: %s\n' "$*"; }
+
+# --- secret management ----------------------------------------------------
+
+gh_token_value() {
+  local v="${GH_TOKEN_SANDBOX:-${GH_TOKEN:-${GITHUB_TOKEN:-}}}"
+  [ -n "$v" ] && printf '%s' "$v"
+}
+
+fw_value() {
+  local v="${FIREWORKS_API_KEY:-}"
+  if [ -z "$v" ]; then
+    local auth="$HOME/.local/share/opencode/auth.json"
+    [ -r "$auth" ] && v="$(jq -r '."fireworks-ai".key // empty' "$auth" 2>/dev/null || true)"
+  fi
+  [ -n "$v" ] && printf '%s' "$v"
+}
+
+upsert_secret() { # name value
+  local name="$1" value="$2"
+  podman secret rm "$name" >/dev/null 2>&1 || true
+  printf '%s' "$value" | podman secret create "$name" - >/dev/null
+  info "secret  $name"
+}
+
+remove_secrets() {
+  for s in "$secret_gh" "$secret_fw"; do
+    podman secret rm "$s" >/dev/null 2>&1 || true
+  done
+}
+
+# --- opencode config ---------------------------------------------------------
+
+config_path() { # host-side path of the generated sandbox config
+  printf '%s/podbox-%s-opencode.json' "${XDG_CACHE_HOME:-$HOME/.cache}/podbox" "$NAME"
+}
+
+# Build the sandbox's opencode config: the pinned model, the permission rules,
+# and the per-agent overrides from the host's installed config. The rules are
+# the whole point of --auto: it auto-approves every `ask`, so without them the
+# agent could commit, push, and open PRs unattended. Denies and agent overrides
+# (notably agent.reviewer.model, the heavy model) are copied verbatim; the file
+# is mounted read-only so the agent cannot relax its own rules from inside.
+compose_config() { # outfile
+  local out="$1" host_cfg="$HOME/.config/opencode/opencode.jsonc" perms='{}' agents='{}'
+  if [ ! -r "$host_cfg" ]; then
+    info "no $host_cfg; sandbox runs with opencode's default permissions"
+  elif ! perms="$(jq -c '.permission // {}' "$host_cfg" 2>/dev/null)"; then
+    perms='{}'
+    info "couldn't parse $host_cfg; sandbox runs with opencode's default permissions"
+  else
+    agents="$(jq -c '.agent // {}' "$host_cfg" 2>/dev/null || echo '{}')"
+  fi
+  jq -n --arg model "$PODBOX_MODEL" --argjson perm "$perms" --argjson agents "$agents" \
+    '{"$schema":"https://opencode.ai/config.json", model:$model, permission:$perm, agent:$agents}' > "$out"
+}
+
+# --- base image --------------------------------------------------------------
+
+# Path to the Containerfile. install.sh copies it next to this script as
+# podbox.Containerfile; running from the repo it sits in sandbox/.
+containerfile_path() {
+  local dir src="${BASH_SOURCE[0]}"
+  while [ -h "$src" ]; do
+    dir="$(cd -P "$(dirname "$src")" && pwd)"
+    src="$(readlink "$src")"
+    case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+  done
+  dir="$(cd -P "$(dirname "$src")" && pwd)"
+  local candidates=(
+    "$CONTAINERFILE"
+    "$dir/podbox.Containerfile"
+    "$dir/Containerfile"
+    "$dir/sandbox/Containerfile"
+  )
+  local f
+  for f in "${candidates[@]}"; do
+    [ -n "$f" ] && [ -r "$f" ] && { printf '%s' "$f"; return 0; }
+  done
+  return 1
+}
+
+# Content hash of a file, portable across macOS and Linux.
+file_sha() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$1" | awk '{print $NF}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+build_image() {
+  local cf="${1:-}" sha
+  [ -n "$cf" ] || cf="$(containerfile_path)" || die "no Containerfile found; set PODBOX_CONTAINERFILE"
+  sha="$(file_sha "$cf")"
+  info "building base image '$IMAGE' from $cf"
+  podman build --label "podbox.containerfile=$sha" -t "$IMAGE" -f "$cf" "$(dirname "$cf")" \
+    || die "base image build failed"
+}
+
+# Rebuild when the Containerfile changes, not just when the image is missing, so
+# edits to the base image take effect without a manual `podbox build`.
+ensure_image() {
+  local cf want have
+  cf="$(containerfile_path)" || die "no Containerfile found; set PODBOX_CONTAINERFILE"
+  want="$(file_sha "$cf")"
+  have="$(podman image inspect --format '{{ index .Labels "podbox.containerfile" }}' "$IMAGE" 2>/dev/null || true)"
+  if podman image exists "$IMAGE" && [ "$have" = "$want" ]; then
+    return 0
+  fi
+  [ "$have" = "" ] || info "base image '$IMAGE' is stale (Containerfile changed); rebuilding"
+  build_image "$cf"
+}
+
+# --- container setup ---------------------------------------------------------
+
+# The base image already ships git/python/gh/opencode, so these normally no-op.
+# They remain for images built without them, elevating via the sandbox user's
+# passwordless sudo.
+install_packages() {
+  local missing
+  missing="$(podman exec --user "$SANDBOX_USER" "$NAME" sh -c '
+    for c in git python3 gcc make curl; do
+      command -v "$c" >/dev/null 2>&1 || printf "%s " "$c"
+    done
+  ')"
+  [ -z "$missing" ] && return 0
+
+  info "installing $missing into $NAME (first run may take a while)"
+  podman exec --user "$SANDBOX_USER" "$NAME" bash -c '
+    set -e
+    if command -v apt-get >/dev/null 2>&1; then
+      sudo env DEBIAN_FRONTEND=noninteractive apt-get update >/dev/null
+      sudo env DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends git python3 python3-dev python3-pip python3-venv gcc make curl ca-certificates >/dev/null
+    else
+      sudo dnf -y install git python3 python3-devel python3-pip gcc make curl >/dev/null
+    fi
+  ' || die "package install failed"
+}
+
+install_gh() {
+  if podman exec --user "$SANDBOX_USER" "$NAME" sh -c 'command -v gh >/dev/null 2>&1'; then
+    return 0
+  fi
+  # gh (GitHub CLI) is best-effort; some distro repos don't carry it.
+  podman exec --user "$SANDBOX_USER" "$NAME" bash -c '
+    if command -v apt-get >/dev/null 2>&1; then
+      sudo apt-get -y install gh >/dev/null 2>&1
+    else
+      sudo dnf -y install gh >/dev/null 2>&1
+    fi
+  ' >/dev/null 2>&1 || true
+}
+
+setup_container() {
+  install_packages
+  install_gh
+
+  local have_gh
+  have_gh="$(podman exec --user "$SANDBOX_USER" "$NAME" sh -c '[ -r /run/secrets/podbox-gh-token ] && echo yes || echo no')"
+
+  # A credential helper that hands git only the injected read-only PAT.
+  if [ "$have_gh" = yes ]; then
+    local cred; cred="$(mktemp)"
+    cat > "$cred" <<'EOF'
+#!/usr/bin/env bash
+case "$1" in
+  get)
+    token="$(cat /run/secrets/podbox-gh-token)"
+    echo "username=x-access-token"
+    echo "password=${token}"
+    ;;
+esac
+EOF
+    podman cp "$cred" "$NAME:/tmp/podbox-cred"
+    rm -f "$cred"
+    podman exec --user "$SANDBOX_USER" "$NAME" sudo install -m 0755 -o root -g root /tmp/podbox-cred /usr/local/bin/podbox-cred \
+      || die "credential helper install failed"
+    podman exec --user "$SANDBOX_USER" "$NAME" sudo rm -f /tmp/podbox-cred || true
+
+    # Wipe any inherited credential helpers, then use only our PAT-backed one.
+    podman exec --user "$SANDBOX_USER" "$NAME" git config --global --unset-all credential.helper >/dev/null 2>&1 || true
+    podman exec --user "$SANDBOX_USER" "$NAME" git config --global credential.helper /usr/local/bin/podbox-cred
+    [ -n "$GITHUB_USER" ] && podman exec --user "$SANDBOX_USER" "$NAME" git config --global user.name "$GITHUB_USER"
+    podman exec --user "$SANDBOX_USER" "$NAME" git config --global credential.useHttpPath true
+    podman exec --user "$SANDBOX_USER" "$NAME" git config --global core.askPass true
+  fi
+
+  # Share the host's global git ignore so sandbox checkouts ignore the same
+  # paths (e.g. .opencode/, .vscode/) and never commit work products.
+  if [ -r "$HOME/.gitignore" ]; then
+    podman cp "$HOME/.gitignore" "$NAME:$SANDBOX_HOME/.gitignore"
+    podman exec --user "$SANDBOX_USER" "$NAME" sudo chown "$SANDBOX_USER:$SANDBOX_USER" "$SANDBOX_HOME/.gitignore"
+    podman exec --user "$SANDBOX_USER" "$NAME" git config --global core.excludesFile "$SANDBOX_HOME/.gitignore"
+    info "gitignore $SANDBOX_HOME/.gitignore"
+  fi
+
+  # Export the mounted fireworks secret at shell start without baking it into env.
+  podman exec --user "$SANDBOX_USER" "$NAME" bash -c '
+    fmount=/run/secrets/podbox-fireworks
+    [ -r "$fmount" ] || exit 0
+    { echo "# exported from $fmount (podbox)";
+      echo "export FIREWORKS_API_KEY=\"\$(cat $fmount)\"";
+    } | sudo tee /etc/profile.d/podbox-env.sh >/dev/null
+  ' || true
+
+  info "secrets: $secret_gh (git), $secret_fw (fireworks)"
+}
+
+install_opencode() {
+  [ "${PODBOX_ENTRY%% *}" = "opencode" ] || return 0
+  info "installing opencode in $NAME (first run downloads the binary)"
+  podman exec --user "$SANDBOX_USER" "$NAME" bash -c '
+    command -v opencode >/dev/null 2>&1 && exit 0
+    curl -fsSL https://opencode.ai/install | bash >/dev/null 2>&1 || true
+    # The installer may not place the binary on PATH for non-interactive shells.
+    found=""
+    for p in /usr/local/bin ~/.opencode/bin ~/.local/bin; do
+      if [ -x "$p/opencode" ]; then found="$p/opencode"; break; fi
+    done
+    if [ -z "$found" ]; then
+      echo "opencode installer ran but no binary was found under /usr/local/bin, ~/.opencode/bin, or ~/.local/bin" >&2
+      exit 1
+    fi
+    sudo ln -sf "$found" /usr/local/bin/opencode
+  ' || die "opencode install failed; set PODBOX_ENTRY=bash to skip it"
+}
+
+# --- commands ---------------------------------------------------------------
+
+ensure_machine() {
+  # Ensure the podman VM is up (macOS). `machine status` isn't in every version.
+  podman machine list --format '{{.Name}} {{.LastUp}}' 2>/dev/null \
+    | grep -q 'Currently running' || podman machine start
+}
+
+ensure_host_path() {
+  # macOS podman machines only share paths under $HOME; mounting elsewhere fails.
+  case "$PWD" in
+    "$HOME"/*) : ;;
+    *) die "cwd outside \$HOME isn't mountable by the macOS podman VM; run podbox in a path under $HOME" ;;
+  esac
+}
+
+ensure_created() {
+  ensure_machine
+  ensure_host_path
+  ensure_image
+
+  # The VM has a fixed memory budget; each sandbox is capped, so refuse to
+  # oversubscribe it. Count other running sandboxes (exclude this project's own,
+  # which create recreates).
+  local running
+  running="$(podman ps --filter "label=$sandbox_label" --format '{{.Names}}' \
+    | awk -v n="$NAME" '$0 != n' | wc -l | tr -d ' ')"
+  if [ "$running" -ge "$PODBOX_MAX_SANDBOXES" ]; then
+    die "$running sandboxes already running (max $PODBOX_MAX_SANDBOXES); remove one with 'podbox rm'"
+  fi
+
+  # Recreate any stale container (e.g. a stopped one) so name collisions are safe.
+  podman rm -f "$NAME" >/dev/null 2>&1 || true
+
+  local secargs=()
+  local value gh=""
+  if gh="$(gh_token_value)"; then
+    upsert_secret "$secret_gh" "$gh"
+    secargs+=(--secret "$secret_gh")
+  else
+    info "no GH_TOKEN_SANDBOX set; git inside the sandbox will have no credentials (read-only off)"
+  fi
+  if value="$(fw_value)"; then
+    upsert_secret "$secret_fw" "$value"
+    secargs+=(--secret "$secret_fw")
+  else
+    info "no FIREWORKS_API_KEY found (env or ~/.local/share/opencode/auth.json); fireworks won't be available"
+  fi
+
+  # Generate the opencode config before the container starts so it can be
+  # bind-mounted read-only. The macOS podman VM only shares paths under $HOME,
+  # so it lives in the cache dir rather than /tmp.
+  local cfg; cfg="$(config_path)"
+  mkdir -p "$(dirname "$cfg")"
+  compose_config "$cfg"
+
+  # Make the host's custom agents (reviewer, pr-review, ...) available inside
+  # the sandbox. Mounted read-only so the agent cannot rewrite its own
+  # definitions. Skipped when the host has no agent dir.
+  local agentargs=()
+  if [ -d "$HOME/.config/opencode/agent" ]; then
+    agentargs=(--volume "$HOME/.config/opencode/agent:$SANDBOX_HOME/.config/opencode/agent:ro")
+  fi
+
+  info "creating sandbox '$NAME' for $PWD"
+  local netargs=()
+  [ -n "$NETWORK" ] && netargs=(--network "$NETWORK")
+  podman run -d --name "$NAME" --init \
+    --rm \
+    --label "$sandbox_label" \
+    --memory "$PODBOX_MEMORY" \
+    --user "$SANDBOX_USER" \
+    --workdir "$PWD" \
+    --volume "$PWD:$PWD" \
+    --volume "$cfg:$SANDBOX_HOME/.config/opencode/opencode.json:ro" \
+    ${agentargs[@]+"${agentargs[@]}"} \
+    ${netargs[@]+"${netargs[@]}"} \
+    ${secargs[@]+"${secargs[@]}"} \
+    --hostname "$NAME" \
+    --entrypoint bash \
+    "$IMAGE" -c 'exec sleep infinity' >/dev/null \
+    || die "failed to start container (is the image pullable?)"
+
+  setup_container
+  install_opencode
+}
+
+run_entry() {
+  cat <<EOF
+
+Sandbox '$NAME' ready (workdir $PWD, user $SANDBOX_USER with passwordless sudo).
+  opencode: podbox code      shell: podbox shell
+  exec:     podbox exec <cmd>      remove: podbox rm
+EOF
+  # Append the caller's args to the entry command. They are passed as bash
+  # positional parameters (not interpolated into the command string), so
+  # quoting and special characters survive the trip into the sandbox.
+  podman exec -it --user "$SANDBOX_USER" "$NAME" bash -lc "$PODBOX_ENTRY \"\$@\"" podbox "$@"
+  local rc=$?
+  if [ "${PODBOX_TEARDOWN:-1}" = 1 ]; then
+    info "exited sandbox '$NAME' — tearing down"
+    podman rm -f "$NAME" >/dev/null 2>&1 || true
+    remove_secrets
+    rm -f "$(config_path)"
+  fi
+  exit $rc
+}
+
+cmd_create() {
+  ensure_created
+  run_entry "$@"
+}
+
+# A running sandbox created from an image that predates the unprivileged user
+# can't run commands as that user; treat it as stale and rebuild it.
+sandbox_usable() {
+  podman exec "$NAME" id "$SANDBOX_USER" >/dev/null 2>&1
+}
+
+require_sandbox() {
+  sandbox_usable || die "sandbox '$NAME' isn't usable (not running, or created before the '$SANDBOX_USER' user); run 'podbox rm' then 'podbox create'"
+}
+
+cmd_up() {
+  ensure_machine
+  ensure_host_path
+  if podman ps --filter "name=${NAME}" --format '{{.Names}}' | grep -qx "$NAME"; then
+    if sandbox_usable; then
+      info "sandbox '$NAME' already running — attaching"
+    else
+      info "sandbox '$NAME' is stale (no '$SANDBOX_USER' user); recreating"
+      podman rm -f "$NAME" >/dev/null 2>&1 || true
+      ensure_created
+    fi
+  else
+    ensure_created
+  fi
+  run_entry "$@"
+}
+
+cmd_code() {
+  # Drop into an opencode session, sourcing the fireworks env shim first.
+  require_sandbox
+  exec podman exec -it --user "$SANDBOX_USER" "$NAME" bash -lc "$PODBOX_ENTRY \"\$@\"" podbox "$@"
+}
+
+cmd_shell() {
+  require_sandbox
+  podman exec -it --user "$SANDBOX_USER" "$NAME" bash -l
+}
+
+cmd_exec() {
+  [ "$#" -gt 0 ] || die "podbox exec needs a command; try 'podbox shell'"
+  require_sandbox
+  podman exec -it --user "$SANDBOX_USER" "$NAME" "$@"
+}
+
+cmd_rm() {
+  podman rm -f "$NAME" >/dev/null 2>&1 || true
+  remove_secrets
+  rm -f "$(config_path)"
+  info "removed '$NAME'"
+}
+
+cmd_build() {
+  ensure_machine
+  build_image
+}
+
+cmd_status() {
+  podman ps --filter "name=${NAME}" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
+}
+
+usage() {
+  sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+case "${1:-}" in
+  create) shift; cmd_create "$@" ;;
+  up|ensure) shift; cmd_up "$@" ;;
+  shell|sh) shift; cmd_shell "$@" ;;
+  code) shift; cmd_code "$@" ;;
+  exec) shift; cmd_exec "$@" ;;
+  build) shift; cmd_build "$@" ;;
+  rm|destroy) shift; cmd_rm "$@" ;;
+  status|ps) shift; cmd_status "$@" ;;
+  help|-h|--help) usage ;;
+  *) usage; exit 1 ;;
+esac

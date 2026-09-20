@@ -1,0 +1,10 @@
+
+h3. *Context*
+{color:#505f79}Describe the background behind the problem.{color}
+
+h3. *Definition of done*
+{color:#505f79}What must be done to consider the task complete?{color}
+
+h3. *Pitfalls*
+{color:#505f79}What should the implementer watch out for?  What are the risks?{color}
+

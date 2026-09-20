@@ -1,0 +1,24 @@
+{panel:borderStyle=solid|borderColor=#21313c|titleBGColor=#21313c|titleColor=#fafbfc|bgColor=#fafbfc}
+h3. *Summary*
+_What is the problem or use case, what are we trying to achieve?_
+
+h3. *Motivation*
+h4. Who is the affected end user?
+_Who are the stakeholders?_
+h4. How does this affect the end user?
+_Are they blocked? Are they annoyed? Are they confused?_
+h4. How likely is it that this problem or use case will occur?
+_Main path? Edge case?_
+h4. If the problem does occur, what are the consequences and how severe are they?
+_Minor annoyance at a log message? Performance concern? Outage/unavailability? Failover can't complete?_
+h4. Is this issue urgent?
+_Does this ticket have a required timeline? What is it?_
+h4. Is this ticket required by a downstream team?
+_Needed by e.g. Atlas, Shell, Compass?_
+h4. Is this ticket only for tests?
+_Does this ticket have any functional impact, or is it just test improvements?_
+h3. *Acceptance Criteria*
+_What specific requirements must be met to consider the design phase complete?_
+
+
+{panel}

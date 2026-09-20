@@ -1,0 +1,79 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "permissions": {
+    "allow": [
+      "Bash(gh api /repos/*)",
+      "Bash(gh api repos/*)",
+      "Bash(gh api repos/*/actions/jobs/*/logs)",
+      "Bash(gh gist create:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh repo view:*)",
+      "Bash(gh run view:*)",
+      "Bash(git branch --show-current)",
+      "Bash(git remote get-url origin)",
+      "Bash(head:*)",
+      "Bash(just benchmark:*)",
+      "Bash(just cover:*)",
+      "Bash(just docs:*)",
+      "Bash(just install:*)",
+      "Bash(just pre-commit:*)",
+      "Bash(just test:*)",
+      "Bash(just typing:*)",
+      "Bash(tail:*)"
+    ],
+    "deny": [
+      "Bash(gh pr comment:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(git commit:*)"
+    ]
+  },
+  "autoMode": {
+    "hard_deny": [
+      "$defaults",
+      "Bash(gh pr create:*) - never open a PR without the user's explicit in-chat confirmation, even in Auto mode",
+      "Bash(gh pr merge:*) - never merge a PR without the user's explicit in-chat confirmation, even in Auto mode",
+      "Bash(git push:*) - never push to any remote without the user's explicit in-chat confirmation, even in Auto mode"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.claude/hooks/check_gh_pr.py\""
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.claude/hooks/check_git_add.py\""
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.claude/hooks/check_git_commit.py\""
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "clangd-lsp@claude-plugins-official": true,
+    "pyright-lsp@claude-plugins-official": true,
+    "superpowers@superpowers-dev": true
+  },
+  "extraKnownMarketplaces": {
+    "superpowers-dev": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/obra/superpowers.git"
+      }
+    }
+  }
+}
