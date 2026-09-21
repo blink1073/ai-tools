@@ -10,6 +10,7 @@
 #   podbox build          build the base image (git/python/gh/opencode)
 #   podbox rm             stop, remove the sandbox container and its secrets
 #   podbox status         show the sandbox container state
+#   podbox sessions       print the number of attached sessions (integer)
 #   podbox code [ARGS]    re-enter an opencode session in the running sandbox
 #
 # ARGS are appended to the entry command (default `opencode --auto`), so
@@ -484,6 +485,30 @@ cmd_status() {
   podman ps --filter "name=${NAME}" --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'
 }
 
+cmd_sessions() {
+  if ! podman ps --filter "name=${NAME}" --format '{{.Names}}' | grep -qx "$NAME"; then
+    printf '0\n'
+    return 0
+  fi
+  podman exec --user "$SANDBOX_USER" "$NAME" sh -c '
+    n=0
+    for d in /proc/[0-9]*; do
+      [ -r "$d/comm" ] || continue
+      comm=$(cat "$d/comm" 2>/dev/null) || continue
+      case "$comm" in
+        opencode) n=$((n + 1)) ;;
+        bash|sh)
+          cmd=$(tr "\0" " " < "$d/cmdline" 2>/dev/null) || cmd=""
+          case "$cmd" in
+            *" -l "*|*" -i "*|*"-lc "*) n=$((n + 1)) ;;
+          esac
+          ;;
+      esac
+    done
+    printf "%s\n" "$n"
+  ' 2>/dev/null || printf '0\n'
+}
+
 usage() {
   sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
 }
@@ -497,6 +522,7 @@ case "${1:-}" in
   build) shift; cmd_build "$@" ;;
   rm|destroy) shift; cmd_rm "$@" ;;
   status|ps) shift; cmd_status "$@" ;;
+  sessions|in-use) shift; cmd_sessions "$@" ;;
   help|-h|--help) usage ;;
   *) usage; exit 1 ;;
 esac

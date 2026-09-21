@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
-# opencode-sandbox — open an opencode session in a per-project podman sandbox.
+# opencode-sandbox — open an opencode session in a per-project sandbox.
 #
-# It creates the sandbox container only if one for the current directory isn't
-# already running, then drops you into opencode inside it. Any arguments are
-# appended to the entry command, so opencode flags pass straight through:
+# With no subcommand, creates the sandbox for the current directory if needed,
+# then drops you into opencode inside it. Any arguments are appended to the
+# entry command, so opencode flags pass straight through:
 #
 #   opencode-sandbox --model provider/model --agent plan
 #
-# Tear down with `podbox rm`. See `podbox` for all options (PODBOX_NAME,
-# PODBOX_IMAGE, PODBOX_MODEL, PODBOX_ENTRY, GH_TOKEN_SANDBOX).
+# Subcommands:
+#   opencode-sandbox sessions   print the number of attached sessions (integer)
+#   opencode-sandbox down       stop and remove the sandbox for this directory
+#
+# Tear down with `opencode-sandbox down` (or `podbox rm`). See `podbox` for all
+# options (PODBOX_NAME, PODBOX_IMAGE, PODBOX_MODEL, PODBOX_ENTRY, GH_TOKEN_SANDBOX).
 
 set -euo pipefail
 
-exec podbox up "$@"
+case "${1:-}" in
+  down|rm) exec podbox rm ;;
+  sessions|in-use) exec podbox sessions ;;
+  *) exec podbox up "$@" ;;
+esac
