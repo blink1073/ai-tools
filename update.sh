@@ -28,8 +28,41 @@ rsync -a --delete --exclude='*evg*' --exclude='*evergreen*' ~/.claude/skills/ ag
 
 # OpenCode
 opencode_dir="$HOME/.config/opencode"
+
+# Model values are tracked per profile in opencode/models.json. If the local
+# config's models differ from the mapping for this machine's profile, the user
+# edited them by hand, so adopt them into the mapping.
+if command -v docker >/dev/null 2>&1; then
+  model_profile=docker
+else
+  model_profile=no-docker
+fi
+local_default=$(jq -r '.model // empty' "$opencode_dir/opencode.json")
+local_heavy=$(jq -r '.agent.plan.model // .agent.reviewer.model // empty' "$opencode_dir/opencode.json")
+map_default=$(jq -r --arg p "$model_profile" '.[$p].default' opencode/models.json)
+map_heavy=$(jq -r --arg p "$model_profile" '.[$p].heavy' opencode/models.json)
+# Only adopt concrete values. A missing model or a leftover placeholder means
+# the local config isn't the source of truth for this machine.
+if [ -n "$local_default" ] && [ -n "$local_heavy" ] &&
+   [ "${local_default#__}" = "$local_default" ] &&
+   [ "${local_heavy#__}" = "$local_heavy" ] &&
+   { [ "$local_default" != "$map_default" ] || [ "$local_heavy" != "$map_heavy" ]; }; then
+  tmp=$(mktemp)
+  jq --arg p "$model_profile" --arg default "$local_default" --arg heavy "$local_heavy" \
+    '.[$p].default = $default | .[$p].heavy = $heavy' \
+    opencode/models.json > "$tmp"
+  mv "$tmp" opencode/models.json
+fi
+
 mkdir -p opencode/plugins
-jq '{ "$schema": (."$schema"), permission: { bash: .permission.bash } }' "$opencode_dir/opencode.jsonc" > opencode/opencode.jsonc
+# Sync the repo template back with placeholders intact; the concrete values
+# live only in opencode/models.json.
+jq '{ "$schema": (."$schema"),
+      model: "__DEFAULT_MODEL__",
+      agent: { plan: { model: "__HEAVY_MODEL__" },
+               reviewer: { model: "__HEAVY_MODEL__" } },
+      permission: { bash: .permission.bash } }' \
+  "$opencode_dir/opencode.json" > opencode/opencode.json
 mkdir -p opencode/agent
 cp "$opencode_dir/agent/reviewer.md" opencode/agent/reviewer.md
 cp "$opencode_dir/agent/pr-review.md" opencode/agent/pr-review.md

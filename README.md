@@ -44,6 +44,18 @@ sandbox CLI is authored here, so `update.sh` leaves `sandbox/` alone.
 
 ## Model settings
 
-OpenCode model settings are per machine and not tracked here. Set `model` and
-`agent.reviewer.model` in `~/.config/opencode/opencode.jsonc`. `install.sh`
-warns when they are missing.
+`opencode/opencode.json` is a template with `__DEFAULT_MODEL__` and
+`__HEAVY_MODEL__` placeholders. `install.sh` picks a profile from
+`opencode/models.json` based on whether `docker` is installed, then fills the
+placeholders in `~/.config/opencode/opencode.json`: the top-level `model` gets
+the default, and the `plan` and `reviewer` agents get the heavy model.
+
+| Profile | Default | Heavy |
+|---|---|---|
+| `docker` | `glm-5p3-flash` | `kimi-k3` |
+| `no-docker` | `deepseek-v4p1-flash` | `glm-5p3-flash` |
+
+A concrete value already in the local config is left alone, so hand-set models
+survive reinstalling. `update.sh` compares the local config against the mapping
+for this machine's profile and writes any hand-set values back into
+`opencode/models.json`, then restores the placeholders in the repo template.

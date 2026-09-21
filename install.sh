@@ -35,27 +35,36 @@ cp -r agents/skills/* ~/.claude/skills/
 # OpenCode
 opencode_dir="$HOME/.config/opencode"
 mkdir -p "$opencode_dir/plugins"
-if [ -f "$opencode_dir/opencode.jsonc" ]; then
-  tmp=$(mktemp)
-  jq --slurpfile repo opencode/opencode.jsonc '
-    .permission.bash = ($repo[0].permission.bash + ((.permission.bash // {}) | to_entries | map(select($repo[0].permission.bash[.key] == null)) | from_entries))
-  ' "$opencode_dir/opencode.jsonc" > "$tmp"
-  mv "$tmp" "$opencode_dir/opencode.jsonc"
+
+# Pick the model profile for this machine. docker boxes get the stronger pair;
+# every other machine gets the fallback. See opencode/models.json.
+if command -v docker >/dev/null 2>&1; then
+  model_profile=docker
 else
-  cp opencode/opencode.jsonc "$opencode_dir/opencode.jsonc"
+  model_profile=no-docker
 fi
-# Model settings are per-machine and not tracked in the repo.
-missing=()
-jq -e '.model' "$opencode_dir/opencode.jsonc" >/dev/null 2>&1 || missing+=("model")
-jq -e '.agent.reviewer.model' "$opencode_dir/opencode.jsonc" >/dev/null 2>&1 || missing+=("agent.reviewer.model")
-if [ ${#missing[@]} -gt 0 ]; then
-  {
-    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-    echo "WARNING: opencode model settings are missing: ${missing[*]}"
-    echo "Set them in $opencode_dir/opencode.jsonc. Each machine sets its own."
-    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-  } >&2
+default_model=$(jq -r --arg p "$model_profile" '.[$p].default' opencode/models.json)
+heavy_model=$(jq -r --arg p "$model_profile" '.[$p].heavy' opencode/models.json)
+
+if [ -f "$opencode_dir/opencode.json" ]; then
+  tmp=$(mktemp)
+  jq --slurpfile repo opencode/opencode.json '
+    .permission.bash = ($repo[0].permission.bash + ((.permission.bash // {}) | to_entries | map(select($repo[0].permission.bash[.key] == null)) | from_entries))
+  ' "$opencode_dir/opencode.json" > "$tmp"
+  mv "$tmp" "$opencode_dir/opencode.json"
+else
+  cp opencode/opencode.json "$opencode_dir/opencode.json"
 fi
+# Fill the placeholders from the chosen profile. A concrete value already in
+# the local config is left alone, so a hand-set model survives reinstalling.
+tmp=$(mktemp)
+jq --arg default "$default_model" --arg heavy "$heavy_model" '
+  def empty_slot: . == null or (type == "string" and startswith("__"));
+  .model = (if (.model | empty_slot) then $default else .model end)
+  | .agent.plan.model = (if (.agent.plan.model | empty_slot) then $heavy else .agent.plan.model end)
+  | .agent.reviewer.model = (if (.agent.reviewer.model | empty_slot) then $heavy else .agent.reviewer.model end)
+' "$opencode_dir/opencode.json" > "$tmp"
+mv "$tmp" "$opencode_dir/opencode.json"
 mkdir -p "$opencode_dir/agent"
 cp opencode/agent/reviewer.md "$opencode_dir/agent/reviewer.md"
 cp opencode/agent/pr-review.md "$opencode_dir/agent/pr-review.md"

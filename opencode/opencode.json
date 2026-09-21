@@ -1,5 +1,14 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "model": "__DEFAULT_MODEL__",
+  "agent": {
+    "plan": {
+      "model": "__HEAVY_MODEL__"
+    },
+    "reviewer": {
+      "model": "__HEAVY_MODEL__"
+    }
+  },
   "permission": {
     "bash": {
       "*": "ask",

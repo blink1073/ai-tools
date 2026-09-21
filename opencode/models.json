@@ -1,0 +1,10 @@
+{
+  "docker": {
+    "default": "fireworks-ai/accounts/fireworks/models/glm-5p3-flash",
+    "heavy": "fireworks-ai/accounts/fireworks/models/kimi-k3"
+  },
+  "no-docker": {
+    "default": "fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash",
+    "heavy": "fireworks-ai/accounts/fireworks/models/glm-5p3-flash"
+  }
+}

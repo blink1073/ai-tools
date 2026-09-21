@@ -42,12 +42,12 @@
 # It is mounted as a secret and exported into the shell via a profile snippet.
 #
 # The reviewer sub-agent runs on the host's heavy model (agent.reviewer.model in
-# ~/.config/opencode/opencode.jsonc). It uses the same provider as the pinned
+# ~/.config/opencode/opencode.json). It uses the same provider as the pinned
 # model, so the fireworks key already covers it.
 #
 # opencode runs with --auto: it auto-approves every `ask` but still enforces
 # `deny`. To keep that safe, the sandbox config is generated from the pinned
-# model plus the permission rules in ~/.config/opencode/opencode.jsonc and
+# model plus the permission rules in ~/.config/opencode/opencode.json and
 # bind-mounted read-only, so the agent cannot rewrite its own rules. The host's
 # custom agents in ~/.config/opencode/agent/ are bind-mounted read-only too, so
 # `--agent reviewer` and `--agent pr-review` resolve inside. Override the entry
@@ -128,7 +128,7 @@ config_path() { # host-side path of the generated sandbox config
 # (notably agent.reviewer.model, the heavy model) are copied verbatim; the file
 # is mounted read-only so the agent cannot relax its own rules from inside.
 compose_config() { # outfile
-  local out="$1" host_cfg="$HOME/.config/opencode/opencode.jsonc" perms='{}' agents='{}'
+  local out="$1" host_cfg="$HOME/.config/opencode/opencode.json" perms='{}' agents='{}'
   if [ ! -r "$host_cfg" ]; then
     info "no $host_cfg; sandbox runs with opencode's default permissions"
   elif ! perms="$(jq -c '.permission // {}' "$host_cfg" 2>/dev/null)"; then
