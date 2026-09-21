@@ -12,7 +12,8 @@
 #   opencode-sandbox down       stop and remove the sandbox for this directory
 #
 # Tear down with `opencode-sandbox down` (or `podbox rm`). See `podbox` for all
-# options (PODBOX_NAME, PODBOX_IMAGE, PODBOX_MODEL, PODBOX_ENTRY, GH_TOKEN_SANDBOX).
+# options (PODBOX_NAME, PODBOX_IMAGE, PODBOX_MODEL, PODBOX_ENTRY, GH_TOKEN_SANDBOX,
+# PODBOX_GIT_NAME, PODBOX_GIT_EMAIL).
 
 set -euo pipefail
 

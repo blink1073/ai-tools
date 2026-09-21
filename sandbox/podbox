@@ -45,6 +45,10 @@
 # ~/.config/opencode/opencode.json). It uses the same provider as the pinned
 # model, so the fireworks key already covers it.
 #
+# The host's git author identity (user.name/user.email) is copied into the
+# sandbox so `git commit` works without prompting. Override with PODBOX_GIT_NAME
+# and PODBOX_GIT_EMAIL; the name falls back to GITHUB_USER.
+#
 # opencode runs with --auto: it auto-approves every `ask` but still enforces
 # `deny`. To keep that safe, the sandbox config is generated from the pinned
 # model plus the permission rules in ~/.config/opencode/opencode.json and
@@ -72,6 +76,10 @@ IMAGE="${PODBOX_IMAGE:-podbox-base:latest}"
 CONTAINERFILE="${PODBOX_CONTAINERFILE:-}"
 NETWORK="${PODBOX_NETWORK:-}"
 GITHUB_USER="${GITHUB_USER:-}"
+# Author identity for commits inside the sandbox, inherited from the host's git
+# config. Override with PODBOX_GIT_NAME / PODBOX_GIT_EMAIL.
+GIT_NAME="${PODBOX_GIT_NAME:-$(git config --global user.name 2>/dev/null || git config user.name 2>/dev/null || true)}"
+GIT_EMAIL="${PODBOX_GIT_EMAIL:-$(git config --global user.email 2>/dev/null || git config user.email 2>/dev/null || true)}"
 PODBOX_MODEL="${PODBOX_MODEL:-fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash}"
 PODBOX_ENTRY="${PODBOX_ENTRY:-opencode --auto}"
 PODBOX_MEMORY="${PODBOX_MEMORY:-3g}"
@@ -267,9 +275,22 @@ EOF
     # Wipe any inherited credential helpers, then use only our PAT-backed one.
     podman exec --user "$SANDBOX_USER" "$NAME" git config --global --unset-all credential.helper >/dev/null 2>&1 || true
     podman exec --user "$SANDBOX_USER" "$NAME" git config --global credential.helper /usr/local/bin/podbox-cred
-    [ -n "$GITHUB_USER" ] && podman exec --user "$SANDBOX_USER" "$NAME" git config --global user.name "$GITHUB_USER"
     podman exec --user "$SANDBOX_USER" "$NAME" git config --global credential.useHttpPath true
     podman exec --user "$SANDBOX_USER" "$NAME" git config --global core.askPass true
+  fi
+
+  # Carry the host's author identity into the sandbox so `git commit` works
+  # without the agent stopping to ask for a name and email. Falls back to
+  # GITHUB_USER for the name when the host has none configured.
+  local author_name="${GIT_NAME:-$GITHUB_USER}"
+  if [ -n "$author_name" ]; then
+    podman exec --user "$SANDBOX_USER" "$NAME" git config --global user.name "$author_name"
+  fi
+  if [ -n "$GIT_EMAIL" ]; then
+    podman exec --user "$SANDBOX_USER" "$NAME" git config --global user.email "$GIT_EMAIL"
+  fi
+  if [ -z "$author_name" ] || [ -z "$GIT_EMAIL" ]; then
+    info "no git author identity found; set user.name/user.email on the host (or PODBOX_GIT_NAME/PODBOX_GIT_EMAIL) so commits work"
   fi
 
   # Share the host's global git ignore so sandbox checkouts ignore the same
