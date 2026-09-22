@@ -88,4 +88,17 @@ ln -sfn "$repo/sandbox/podbox" "$sandbox_bin/podbox"
 # `docker` is a shim for podman anyway.
 if command -v podman >/dev/null 2>&1; then
   ln -sfn "$repo/sandbox/opencode-sandbox" "$sandbox_bin/opencode-sandbox"
+  # The sandbox GitHub credential comes from ~/github_token.sh (a fine-grained
+  # read-only PAT, re-read on every launch). Fail at install time rather than
+  # mid-launch. Sourced with tracing off so set -x never prints the token.
+  if [ ! -f "$HOME/github_token.sh" ]; then
+    echo "error: no $HOME/github_token.sh; create it to export GITHUB_TOKEN with a fine-grained read-only PAT" >&2
+    exit 1
+  fi
+  tok="$(set +ex; . "$HOME/github_token.sh" && printf '%s' "${GITHUB_TOKEN:-}")"
+  case "$tok" in
+    github_pat_*) ;;
+    *) echo "error: $HOME/github_token.sh does not export a fine-grained PAT (github_pat_...); classic tokens carry write scope" >&2; exit 1 ;;
+  esac
+  unset tok
 fi

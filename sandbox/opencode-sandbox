@@ -7,18 +7,40 @@
 #
 #   opencode-sandbox --model provider/model --agent plan
 #
-# Subcommands:
+# On exit the sandbox stays up while another session is still attached; the
+# last session out tears it down (with its secrets).
+#
+# Subcommands, which act on the sandbox for the current directory instead of
+# launching an agent (down also takes an optional sandbox name):
 #   opencode-sandbox sessions   print the number of attached sessions (integer)
-#   opencode-sandbox down       stop and remove the sandbox for this directory
+#   opencode-sandbox down [name]  stop and remove the sandbox
+#
+# Global instead of per-directory:
+#   opencode-sandbox ls         list running sandboxes and the slots used/remaining
 #
 # Tear down with `opencode-sandbox down` (or `podbox rm`). See `podbox` for all
 # options (PODBOX_NAME, PODBOX_IMAGE, PODBOX_MODEL, PODBOX_ENTRY, GH_TOKEN_SANDBOX,
-# PODBOX_GIT_NAME, PODBOX_GIT_EMAIL).
+# PODBOX_GIT_NAME, PODBOX_GIT_EMAIL, PODBOX_SIGNING_KEY).
 
 set -euo pipefail
 
 case "${1:-}" in
-  down|rm) exec podbox rm ;;
+  down|rm)
+    shift
+    if [ "$#" -gt 1 ]; then
+      printf "opencode-sandbox: 'down' takes at most one sandbox name (got: %s)\n" "$*" >&2
+      exit 2
+    fi
+    exec podbox rm "${1:-}"
+    ;;
   sessions|in-use) exec podbox sessions ;;
-  *) exec podbox up "$@" ;;
+  ls|list) exec podbox ls ;;
+  *)
+    # Launching shares the current directory with the sandbox, so refuse the
+    # home directory; subcommands are safe anywhere.
+    if [ "$PWD" = "$HOME" ]; then
+      echo "opencode-sandbox: refusing to share your home directory; run from a project directory" >&2
+      exit 1
+    fi
+    exec podbox up "$@" ;;
 esac

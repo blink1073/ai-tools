@@ -2,15 +2,19 @@
 # podbox — an opinionated per-project podman sandbox, inspired by Docker Sandboxes.
 #
 #   podbox up [ARGS]      create the sandbox only if not already running, then
-#                         run it (container is torn down when the session exits)
+#                         run it (it stays up while another session is still
+#                         attached, and is torn down by the last one out)
 #   podbox create [ARGS]  create a container sandbox for the current directory
 #                         and drop you into an opencode session inside it
 #   podbox shell          exec an interactive bash shell in the running sandbox
 #   podbox exec CMD       run a command inside the running sandbox
 #   podbox build          build the base image (git/python/gh/opencode)
-#   podbox rm             stop, remove the sandbox container and its secrets
+#   podbox rm [NAME]      stop, remove a sandbox container and its secrets
+#                         (default: this directory's; a name may be given)
 #   podbox status         show the sandbox container state
 #   podbox sessions       print the number of attached sessions (integer)
+#   podbox ls             list running sandboxes, their last-used ages, and
+#                         the slots used/remaining (global, not per-directory)
 #   podbox code [ARGS]    re-enter an opencode session in the running sandbox
 #
 # ARGS are appended to the entry command (default `opencode --auto`), so
@@ -27,13 +31,18 @@
 # Secrets are delivered as podman secrets (mounted at /run/secrets), never as
 # environment variables, so they are not visible via `podman inspect` or /proc.
 #
-# The GitHub token is a read-only personal access token you supply on the host:
-#   GH_TOKEN_SANDBOX=github_pat_xxx podbox create
-# It is injected as a secret and used by git inside the sandbox through a small
-# credential helper. No host git credential helper (osxkeychain, gh) is shared.
-# GH_TOKEN_SANDBOX is the preferred name: unlike GH_TOKEN/GITHUB_TOKEN it is not
-# recognized by git or gh on the host, so exporting it in your shell is safe and
-# can never shadow your real read/write credentials.
+# The GitHub token is a fine-grained read-only personal access token
+# (github_pat_...) taken from ~/github_token.sh, which must export GITHUB_TOKEN:
+#   echo 'export GITHUB_TOKEN=github_pat_xxx' > ~/github_token.sh
+# It is re-read on every create, so refreshing the token file is picked up on
+# the next launch. A create without it fails up front rather than mid-launch.
+# GH_TOKEN_SANDBOX overrides the file. The token is injected as a podman secret
+# (never an environment variable, so it is not visible via `podman inspect` or
+# /proc) and used by git inside the sandbox through a small credential helper.
+# No host git credential helper (osxkeychain, gh) is shared. GH_TOKEN_SANDBOX
+# is the safe override name: unlike GH_TOKEN/GITHUB_TOKEN it is not recognized
+# by git or gh on the host, so exporting it in your shell can never shadow your
+# real read/write credentials.
 #
 # The fireworks API key is taken from your opencode auth store on the host,
 # falling back to the FIREWORKS_API_KEY env var:
@@ -49,6 +58,19 @@
 # sandbox so `git commit` works without prompting. Override with PODBOX_GIT_NAME
 # and PODBOX_GIT_EMAIL; the name falls back to GITHUB_USER.
 #
+# Host dotfiles (~/.gitignore, ~/.bashrc) are copied into the sandbox home on
+# every launch — not just at creation — so host edits reach existing sandboxes
+# on their next launch. The sandbox git config's core.excludesFile points at
+# the copied .gitignore, so git ignores the same paths as the host.
+#
+# An SSH signing key pair is synced into the sandbox and git there is
+# configured to sign every commit and tag with it, so sandbox commits meet
+# the host signing policy. The pair is chosen by, in order: PODBOX_SIGNING_KEY
+# (a .pub path), a dedicated ~/.ssh/id_ed25519_sign_sbx pair, else the pair
+# named by the host git config's user.signingkey. It must be passphrase-free
+# (signing runs non-interactively); a signingkey that is not a file — a
+# literal SSH key or a GPG key id — is skipped, as is a missing private half.
+#
 # opencode runs with --auto: it auto-approves every `ask` but still enforces
 # `deny`. To keep that safe, the sandbox config is generated from the pinned
 # model plus the permission rules in ~/.config/opencode/opencode.json and
@@ -63,10 +85,11 @@
 # is created in the base image; the opencode config is bind-mounted read-only
 # into its home.
 #
-# Each sandbox is capped at PODBOX_MEMORY (default 3g) and refuses to start when
-# PODBOX_MAX_SANDBOXES (default 4) are already running, so concurrent sessions
-# can't exhaust the podman VM and trigger the kernel OOM-killer. The defaults
-# assume a 12 GiB VM; size the VM accordingly (on the host):
+# Each sandbox is capped at PODBOX_CPUS (default 2) and PODBOX_MEMORY
+# (default 3g) and refuses to start when PODBOX_MAX_SANDBOXES (default 4) are
+# already running, so concurrent sessions can't exhaust the podman VM and
+# trigger the kernel OOM-killer. The defaults assume a 12 GiB VM; size the VM
+# accordingly (on the host):
 #   podman machine stop && podman machine set --memory 12288 && podman machine start
 
 set -euo pipefail
@@ -82,6 +105,7 @@ GIT_NAME="${PODBOX_GIT_NAME:-$(git config --global user.name 2>/dev/null || git 
 GIT_EMAIL="${PODBOX_GIT_EMAIL:-$(git config --global user.email 2>/dev/null || git config user.email 2>/dev/null || true)}"
 PODBOX_MODEL="${PODBOX_MODEL:-fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash}"
 PODBOX_ENTRY="${PODBOX_ENTRY:-opencode --auto}"
+PODBOX_CPUS="${PODBOX_CPUS:-2}"
 PODBOX_MEMORY="${PODBOX_MEMORY:-3g}"
 PODBOX_MAX_SANDBOXES="${PODBOX_MAX_SANDBOXES:-4}"
 SANDBOX_USER="${PODBOX_USER:-dev}"
@@ -89,6 +113,9 @@ SANDBOX_HOME="/home/$SANDBOX_USER"
 secret_gh="podbox-gh-token"
 secret_fw="podbox-fireworks"
 sandbox_label="podbox=1"
+# Touched on every attach so `podbox ls` can show how long ago a sandbox was
+# last used (creation and start times don't move on attach).
+last_used_file="/tmp/.podbox-last-used"
 
 die() { printf 'podbox: %s\n' "$*" >&2; exit 1; }
 
@@ -96,9 +123,34 @@ info() { printf 'podbox: %s\n' "$*"; }
 
 # --- secret management ----------------------------------------------------
 
+# The GitHub credential: GH_TOKEN_SANDBOX wins, else the on-host token file,
+# which holds a fine-grained read-only PAT and is re-read on every create, so
+# a refreshed token is picked up without any sandbox-side state. Sourced in a
+# subshell with nounset off: the file may reference variables it does not
+# itself define.
 gh_token_value() {
-  local v="${GH_TOKEN_SANDBOX:-${GH_TOKEN:-${GITHUB_TOKEN:-}}}"
-  [ -n "$v" ] && printf '%s' "$v"
+  if [ -n "${GH_TOKEN_SANDBOX:-}" ]; then
+    printf '%s' "$GH_TOKEN_SANDBOX"
+    return 0
+  fi
+  local f="$HOME/github_token.sh"
+  [ -r "$f" ] || return 1
+  # shellcheck source=/dev/null
+  (set +u; . "$f"; printf '%s' "${GITHUB_TOKEN:-}") || return 1
+}
+
+# A create needs the GitHub credential up front: fail before any container
+# work rather than mid-launch. The token must be a fine-grained PAT
+# (github_pat_...): classic tokens carry write scope, and the sandbox is
+# meant to be read-only. Attaching to an already-running sandbox skips this.
+require_gh_token() {
+  [ -n "${GH_TOKEN_SANDBOX:-}" ] && return 0
+  local v
+  v="$(gh_token_value)" || die "no GitHub credential: GH_TOKEN_SANDBOX unset and no readable $HOME/github_token.sh exporting GITHUB_TOKEN (a fine-grained read-only PAT)"
+  case "$v" in
+    github_pat_*) ;;
+    *) die "$HOME/github_token.sh does not export a fine-grained PAT (github_pat_...); classic tokens carry write scope" ;;
+  esac
 }
 
 fw_value() {
@@ -121,6 +173,50 @@ remove_secrets() {
   for s in "$secret_gh" "$secret_fw"; do
     podman secret rm "$s" >/dev/null 2>&1 || true
   done
+}
+
+# --- session bookkeeping -----------------------------------------------------
+
+# Count opencode processes and interactive shells inside the sandbox, so the
+# keep-alive teardown (and an external owner) can tell when a session is
+# still attached. Prints 0 when the sandbox isn't reachable.
+count_sessions() {
+  podman exec --user "$SANDBOX_USER" "$NAME" sh -c '
+    n=0
+    for d in /proc/[0-9]*; do
+      [ -r "$d/comm" ] || continue
+      comm=$(cat "$d/comm" 2>/dev/null) || continue
+      case "$comm" in
+        opencode) n=$((n + 1)) ;;
+        bash|sh)
+          cmd=$(tr "\0" " " < "$d/cmdline" 2>/dev/null) || cmd=""
+          case "$cmd" in
+            *" -l "*|*" -i "*|*"-lc "*) n=$((n + 1)) ;;
+          esac
+          ;;
+      esac
+    done
+    printf "%s\n" "$n"
+  ' 2>/dev/null || printf '0\n'
+}
+
+touch_last_used() {
+  podman exec --user "$SANDBOX_USER" "$NAME" sh -c "date +%s > $last_used_file" >/dev/null 2>&1 || true
+}
+
+# Age of a sandbox's last attach, human-readable ('-' when never attached).
+last_used_age() { # name
+  local ts now age
+  ts="$(podman exec --user "$SANDBOX_USER" "$1" cat "$last_used_file" 2>/dev/null)" || ts=""
+  case "$ts" in ''|*[!0-9]*) printf -- '-\n'; return 0 ;; esac
+  now="$(date +%s)"
+  age=$((now - ts))
+  [ "$age" -lt 0 ] && age=0
+  if [ "$age" -lt 60 ]; then printf '%ss\n' "$age"
+  elif [ "$age" -lt 3600 ]; then printf '%sm\n' "$((age / 60))"
+  elif [ "$age" -lt 86400 ]; then printf '%sh\n' "$((age / 3600))"
+  else printf '%sd\n' "$((age / 86400))"
+  fi
 }
 
 # --- opencode config ---------------------------------------------------------
@@ -246,6 +342,80 @@ install_gh() {
   ' >/dev/null 2>&1 || true
 }
 
+# Mirror host dotfiles into the sandbox home and configure signing, so the
+# sandbox matches the host on every launch (at creation, and on every later
+# attach).
+sync_dotfiles() {
+  local f
+  for f in .gitignore .bashrc; do
+    [ -f "$HOME/$f" ] || continue
+    if podman cp "$HOME/$f" "$NAME:$SANDBOX_HOME/$f" >/dev/null 2>&1; then
+      podman exec --user "$SANDBOX_USER" "$NAME" sudo chown "$SANDBOX_USER:$SANDBOX_USER" "$SANDBOX_HOME/$f" >/dev/null 2>&1 || true
+      if [ "$f" = .gitignore ]; then
+        # Without this setting git would not read the copied file.
+        podman exec --user "$SANDBOX_USER" "$NAME" git config --global core.excludesFile "$SANDBOX_HOME/.gitignore" >/dev/null 2>&1 || true
+        info "gitignore $SANDBOX_HOME/.gitignore"
+      fi
+    else
+      info "could not copy $f into $NAME"
+    fi
+  done
+  sync_signing_key
+  return 0
+}
+
+# Sync the host's SSH signing key pair into the sandbox and require signed
+# commits and tags there, so sandbox commits meet the host signing policy
+# (signing happens locally in the sandbox; no SSH agent forwarding is used).
+# See the header for how the pair is chosen.
+sync_signing_key() {
+  local key="${PODBOX_SIGNING_KEY:-}"
+  if [ -z "$key" ] && [ -f "$HOME/.ssh/id_ed25519_sign_sbx.pub" ]; then
+    key="$HOME/.ssh/id_ed25519_sign_sbx.pub"
+  fi
+  if [ -z "$key" ]; then
+    key="$(git config --global --get user.signingkey 2>/dev/null || true)"
+  fi
+  [ -z "$key" ] && return 0
+  case "$key" in
+    \~*) key="$HOME${key#\~}" ;;
+    /*) ;;
+    *) key="$HOME/$key" ;;
+  esac
+  local pub priv
+  case "$key" in
+    *.pub) pub="$key"; priv="${key%.pub}" ;;
+    *)     priv="$key"; pub="$key.pub" ;;
+  esac
+  if [ ! -f "$priv" ] || [ ! -f "$pub" ]; then
+    info "signing key pair incomplete ($priv and $pub); not syncing"
+    return 0
+  fi
+  if ! podman exec --user "$SANDBOX_USER" "$NAME" bash -c 'umask 077; mkdir -p ~/.ssh; chmod 700 ~/.ssh' 2>/dev/null; then
+    info "could not prepare ~/.ssh in $NAME"
+    return 0
+  fi
+  local priv_name pub_name
+  priv_name="$(basename "$priv")"
+  pub_name="$(basename "$pub")"
+  if ! podman cp "$priv" "$NAME:$SANDBOX_HOME/.ssh/$priv_name" >/dev/null 2>&1 \
+     || ! podman cp "$pub" "$NAME:$SANDBOX_HOME/.ssh/$pub_name" >/dev/null 2>&1; then
+    info "could not copy the signing key into $NAME"
+    return 0
+  fi
+  podman exec --user "$SANDBOX_USER" "$NAME" sudo chmod 600 "$SANDBOX_HOME/.ssh/$priv_name" >/dev/null 2>&1 || true
+  podman exec --user "$SANDBOX_USER" "$NAME" sudo chmod 644 "$SANDBOX_HOME/.ssh/$pub_name" >/dev/null 2>&1 || true
+  podman exec --user "$SANDBOX_USER" "$NAME" sudo chown -R "$SANDBOX_USER:$SANDBOX_USER" "$SANDBOX_HOME/.ssh" >/dev/null 2>&1 || true
+  if podman exec --user "$SANDBOX_USER" "$NAME" git config --global gpg.format ssh \
+     && podman exec --user "$SANDBOX_USER" "$NAME" git config --global user.signingkey "$SANDBOX_HOME/.ssh/$pub_name" \
+     && podman exec --user "$SANDBOX_USER" "$NAME" git config --global commit.gpgsign true \
+     && podman exec --user "$SANDBOX_USER" "$NAME" git config --global tag.gpgsign true; then
+    info "signing commits with $SANDBOX_HOME/.ssh/$pub_name"
+  else
+    info "could not configure git signing in $NAME"
+  fi
+}
+
 setup_container() {
   install_packages
   install_gh
@@ -293,14 +463,10 @@ EOF
     info "no git author identity found; set user.name/user.email on the host (or PODBOX_GIT_NAME/PODBOX_GIT_EMAIL) so commits work"
   fi
 
-  # Share the host's global git ignore so sandbox checkouts ignore the same
-  # paths (e.g. .opencode/, .vscode/) and never commit work products.
-  if [ -r "$HOME/.gitignore" ]; then
-    podman cp "$HOME/.gitignore" "$NAME:$SANDBOX_HOME/.gitignore"
-    podman exec --user "$SANDBOX_USER" "$NAME" sudo chown "$SANDBOX_USER:$SANDBOX_USER" "$SANDBOX_HOME/.gitignore"
-    podman exec --user "$SANDBOX_USER" "$NAME" git config --global core.excludesFile "$SANDBOX_HOME/.gitignore"
-    info "gitignore $SANDBOX_HOME/.gitignore"
-  fi
+  # Share the host's global git ignore and shell rc so sandbox checkouts
+  # ignore the same paths (e.g. .opencode/, .vscode/) and interactive shells
+  # behave like the host's. Re-synced on every launch (see sync_dotfiles).
+  sync_dotfiles
 
   # Export the mounted fireworks secret at shell start without baking it into env.
   podman exec --user "$SANDBOX_USER" "$NAME" bash -c '
@@ -350,31 +516,34 @@ ensure_host_path() {
 }
 
 ensure_created() {
+  # Fail on a missing/invalid GitHub credential before any container or image
+  # work, rather than mid-launch.
+  require_gh_token
   ensure_machine
   ensure_host_path
-  ensure_image
 
   # The VM has a fixed memory budget; each sandbox is capped, so refuse to
   # oversubscribe it. Count other running sandboxes (exclude this project's own,
-  # which create recreates).
+  # which create recreates). Checked before the image build, so a refused
+  # launch doesn't pay for one.
   local running
   running="$(podman ps --filter "label=$sandbox_label" --format '{{.Names}}' \
     | awk -v n="$NAME" '$0 != n' | wc -l | tr -d ' ')"
   if [ "$running" -ge "$PODBOX_MAX_SANDBOXES" ]; then
-    die "$running sandboxes already running (max $PODBOX_MAX_SANDBOXES); remove one with 'podbox rm'"
+    podman ps --filter "label=$sandbox_label" --format '  running: {{.Names}}' >&2 || true
+    die "$running sandboxes already running (max $PODBOX_MAX_SANDBOXES); free a slot with 'podbox rm <name>' or raise the cap with PODBOX_MAX_SANDBOXES=<n>"
   fi
+
+  ensure_image
 
   # Recreate any stale container (e.g. a stopped one) so name collisions are safe.
   podman rm -f "$NAME" >/dev/null 2>&1 || true
 
   local secargs=()
-  local value gh=""
-  if gh="$(gh_token_value)"; then
-    upsert_secret "$secret_gh" "$gh"
-    secargs+=(--secret "$secret_gh")
-  else
-    info "no GH_TOKEN_SANDBOX set; git inside the sandbox will have no credentials (read-only off)"
-  fi
+  local value gh
+  gh="$(gh_token_value)"
+  upsert_secret "$secret_gh" "$gh"
+  secargs+=(--secret "$secret_gh")
   if value="$(fw_value)"; then
     upsert_secret "$secret_fw" "$value"
     secargs+=(--secret "$secret_fw")
@@ -403,6 +572,7 @@ ensure_created() {
   podman run -d --name "$NAME" --init \
     --rm \
     --label "$sandbox_label" \
+    --cpus "$PODBOX_CPUS" \
     --memory "$PODBOX_MEMORY" \
     --user "$SANDBOX_USER" \
     --workdir "$PWD" \
@@ -421,6 +591,7 @@ ensure_created() {
 }
 
 run_entry() {
+  touch_last_used
   cat <<EOF
 
 Sandbox '$NAME' ready (workdir $PWD, user $SANDBOX_USER with passwordless sudo).
@@ -433,10 +604,22 @@ EOF
   podman exec -it --user "$SANDBOX_USER" "$NAME" bash -lc "$PODBOX_ENTRY \"\$@\"" podbox "$@"
   local rc=$?
   if [ "${PODBOX_TEARDOWN:-1}" = 1 ]; then
-    info "exited sandbox '$NAME' — tearing down"
-    podman rm -f "$NAME" >/dev/null 2>&1 || true
-    remove_secrets
-    rm -f "$(config_path)"
+    # Keep-alive: our own opencode process can outlive the exec briefly, so
+    # poll before deciding; a still-attached session leaves the sandbox up.
+    local n=""
+    for _ in 1 2 3 4 5; do
+      n="$(count_sessions)"
+      [ "$n" = 0 ] && break
+      sleep 1
+    done
+    if [ "$n" = 0 ]; then
+      info "exited sandbox '$NAME' — tearing down"
+      podman rm -f "$NAME" >/dev/null 2>&1 || true
+      remove_secrets
+      rm -f "$(config_path)"
+    else
+      info "sandbox '$NAME' has another attached session; leaving it running ('podbox rm' removes it)"
+    fi
   fi
   exit $rc
 }
@@ -462,6 +645,8 @@ cmd_up() {
   if podman ps --filter "name=${NAME}" --format '{{.Names}}' | grep -qx "$NAME"; then
     if sandbox_usable; then
       info "sandbox '$NAME' already running — attaching"
+      # Re-sync host dotfiles so host edits reach this launch.
+      sync_dotfiles
     else
       info "sandbox '$NAME' is stale (no '$SANDBOX_USER' user); recreating"
       podman rm -f "$NAME" >/dev/null 2>&1 || true
@@ -476,6 +661,7 @@ cmd_up() {
 cmd_code() {
   # Drop into an opencode session, sourcing the fireworks env shim first.
   require_sandbox
+  touch_last_used
   exec podman exec -it --user "$SANDBOX_USER" "$NAME" bash -lc "$PODBOX_ENTRY \"\$@\"" podbox "$@"
 }
 
@@ -491,10 +677,15 @@ cmd_exec() {
 }
 
 cmd_rm() {
-  podman rm -f "$NAME" >/dev/null 2>&1 || true
+  # Acts on this directory's sandbox by default; a sandbox name may be given.
+  if [ "$#" -gt 1 ]; then
+    die "podbox rm takes at most one sandbox name (got: $*)"
+  fi
+  local target="${1:-$NAME}"
+  podman rm -f "$target" >/dev/null 2>&1 || true
   remove_secrets
-  rm -f "$(config_path)"
-  info "removed '$NAME'"
+  rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/podbox/podbox-$target-opencode.json"
+  info "removed '$target'"
 }
 
 cmd_build() {
@@ -507,27 +698,27 @@ cmd_status() {
 }
 
 cmd_sessions() {
-  if ! podman ps --filter "name=${NAME}" --format '{{.Names}}' | grep -qx "$NAME"; then
-    printf '0\n'
-    return 0
-  fi
-  podman exec --user "$SANDBOX_USER" "$NAME" sh -c '
-    n=0
-    for d in /proc/[0-9]*; do
-      [ -r "$d/comm" ] || continue
-      comm=$(cat "$d/comm" 2>/dev/null) || continue
-      case "$comm" in
-        opencode) n=$((n + 1)) ;;
-        bash|sh)
-          cmd=$(tr "\0" " " < "$d/cmdline" 2>/dev/null) || cmd=""
-          case "$cmd" in
-            *" -l "*|*" -i "*|*"-lc "*) n=$((n + 1)) ;;
-          esac
-          ;;
-      esac
-    done
-    printf "%s\n" "$n"
-  ' 2>/dev/null || printf '0\n'
+  count_sessions
+}
+
+cmd_ls() {
+  # Global view (not per-directory): running podbox sandboxes with last-used
+  # ages, plus a slots summary against the same PODBOX_MAX_SANDBOXES limit
+  # the launch gate enforces.
+  [ "$#" -eq 0 ] || die "podbox ls takes no arguments"
+  local max="$PODBOX_MAX_SANDBOXES" name age dir used=0
+  case "$max" in ''|*[!0-9]*) max=4 ;; esac
+  printf '%-40s %-9s %-10s %s\n' SANDBOX STATUS 'LAST USED' WORKSPACE
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    used=$((used + 1))
+    age="$(last_used_age "$name")"
+    dir="$(podman inspect --format '{{.Config.WorkingDir}}' "$name" 2>/dev/null || printf '?')"
+    printf '%-40s %-9s %-10s %s\n' "$name" running "$age" "$dir"
+  done < <(podman ps --filter "label=$sandbox_label" --format '{{.Names}}' | sort)
+  local free=$((max - used))
+  [ "$free" -lt 0 ] && free=0
+  printf '%d/%d slots used, %d remaining\n' "$used" "$max" "$free"
 }
 
 usage() {
@@ -544,6 +735,7 @@ case "${1:-}" in
   rm|destroy) shift; cmd_rm "$@" ;;
   status|ps) shift; cmd_status "$@" ;;
   sessions|in-use) shift; cmd_sessions "$@" ;;
+  ls|list) shift; cmd_ls "$@" ;;
   help|-h|--help) usage ;;
   *) usage; exit 1 ;;
 esac
