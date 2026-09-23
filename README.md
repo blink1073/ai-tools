@@ -57,6 +57,15 @@ home on every launch — not just at creation — so host edits reach existing
 sandboxes on their next launch. The sandbox git config's `core.excludesFile`
 points at the copied `.gitignore`, so git ignores the same paths as the host.
 
+Custom agents: the host's opencode agents are merged from both layouts opencode
+reads (`~/.config/opencode/agent` first, then `~/.config/opencode/agents` on
+top of it, so the plural spelling wins on name clashes) and mounted read-only
+into the sandbox, so `--agent reviewer` and friends resolve inside. The merge
+is refreshed on every launch, so agents added or removed on the host are
+reflected on the next relaunch. Agents kept at the project level
+(`.opencode/agent{,s}/` in the repo) need no sync: the workspace mount makes
+them visible to the sandboxed opencode directly.
+
 SSH commit signing: a host SSH signing key pair is synced into the sandbox
 `~/.ssh` and git there is configured to sign every commit and tag with it
 (`gpg.format ssh`, `commit.gpgsign`, `tag.gpgsign`), so sandbox commits meet
@@ -66,6 +75,13 @@ in order: `PODBOX_SIGNING_KEY` (a `.pub` path), a dedicated
 `user.signingkey`. It must be passphrase-free (signing runs non-interactively);
 a key that is not a file, or a `.pub` without its private half, skips the sync
 with a warning. Register its public half on GitHub as a **Signing Key**.
+
+Model labeling: the pinned model (`PODBOX_MODEL`) and anything listed in
+`PODBOX_EXTRA_MODELS` (space-separated provider/model ids) get
+`PODBOX_LABEL_SUFFIX` (default ` (sandbox)`) appended to their display names in
+the sandbox model picker, so the picker shows which TUI runs in a sandbox. Only
+labeled models are marked; the always-on prompt line renders raw model ids and
+is not affected.
 
 GitHub credential: the sandbox token is a fine-grained read-only PAT
 (`github_pat_...`) taken from `~/github_token.sh` (`export GITHUB_TOKEN=...`),

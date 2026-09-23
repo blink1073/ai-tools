@@ -74,10 +74,15 @@
 # opencode runs with --auto: it auto-approves every `ask` but still enforces
 # `deny`. To keep that safe, the sandbox config is generated from the pinned
 # model plus the permission rules in ~/.config/opencode/opencode.json and
-# bind-mounted read-only, so the agent cannot rewrite its own rules. The host's
-# custom agents in ~/.config/opencode/agent/ are bind-mounted read-only too, so
-# `--agent reviewer` and `--agent pr-review` resolve inside. Override the entry
-# with PODBOX_ENTRY (e.g. PODBOX_ENTRY=opencode to require prompts).
+# bind-mounted read-only, so the agent cannot rewrite its own rules. The pinned
+# model and anything listed in PODBOX_EXTRA_MODELS get PODBOX_LABEL_SUFFIX
+# appended to their display names, so the model picker shows which TUI runs in
+# a sandbox. The host's custom agents are bind-mounted read-only too, merged
+# from both layouts opencode reads (~/.config/opencode/agent, then
+# ~/.config/opencode/agents on top of it, so the plural spelling wins on name
+# clashes) and re-merged on every launch, so `--agent reviewer` and
+# `--agent pr-review` resolve inside. Override the entry with PODBOX_ENTRY
+# (e.g. PODBOX_ENTRY=opencode to require prompts).
 #
 # The agent session runs as an unprivileged user (default 'dev', override with
 # PODBOX_USER) that has passwordless sudo, so ordinary commands run without root
@@ -104,6 +109,11 @@ GITHUB_USER="${GITHUB_USER:-}"
 GIT_NAME="${PODBOX_GIT_NAME:-$(git config --global user.name 2>/dev/null || git config user.name 2>/dev/null || true)}"
 GIT_EMAIL="${PODBOX_GIT_EMAIL:-$(git config --global user.email 2>/dev/null || git config user.email 2>/dev/null || true)}"
 PODBOX_MODEL="${PODBOX_MODEL:-fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash}"
+# Models labeled in the sandbox model picker: the pinned model plus
+# PODBOX_EXTRA_MODELS (space-separated provider/model ids) get
+# PODBOX_LABEL_SUFFIX appended to their display names.
+PODBOX_LABEL_SUFFIX="${PODBOX_LABEL_SUFFIX:- (sandbox)}"
+PODBOX_EXTRA_MODELS="${PODBOX_EXTRA_MODELS:-}"
 PODBOX_ENTRY="${PODBOX_ENTRY:-opencode --auto}"
 PODBOX_CPUS="${PODBOX_CPUS:-2}"
 PODBOX_MEMORY="${PODBOX_MEMORY:-3g}"
@@ -225,12 +235,44 @@ config_path() { # host-side path of the generated sandbox config
   printf '%s/podbox-%s-opencode.json' "${XDG_CACHE_HOME:-$HOME/.cache}/podbox" "$NAME"
 }
 
+agents_path() { # host-side path of the merged custom agents directory
+  printf '%s/podbox-%s-agents' "${XDG_CACHE_HOME:-$HOME/.cache}/podbox" "$NAME"
+}
+
+# Merge the host's custom opencode agents — both layouts opencode reads:
+# ~/.config/opencode/agent first, then ~/.config/opencode/agents on top of it,
+# so the plural spelling wins on name clashes — into a cache directory that is
+# bind-mounted read-only into the sandbox. Contents are wiped first so agents
+# deleted on the host do not linger; the directory itself is kept because a
+# running sandbox may hold it mounted (wiping it would orphan the mount's
+# inode). Symlinks are dereferenced by the copy. Prints the number of files
+# merged. Call before creating the sandbox and on every later attach, so host
+# edits reach the sandbox on its next launch.
+sync_agents_dir() { # dest
+  local dest="$1" src count
+  find "$dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+  mkdir -p "$dest"
+  for src in "$HOME/.config/opencode/agent" "$HOME/.config/opencode/agents"; do
+    [ -d "$src" ] || continue
+    # >&2 so a caller capturing the printed count still sees the warning.
+    cp -RL "$src"/. "$dest"/ || info "could not copy agents from $src" >&2
+  done
+  count="$(find "$dest" ! -type d | wc -l | tr -d ' ')"
+  printf '%s\n' "$count"
+}
+
 # Build the sandbox's opencode config: the pinned model, the permission rules,
 # and the per-agent overrides from the host's installed config. The rules are
 # the whole point of --auto: it auto-approves every `ask`, so without them the
 # agent could commit, push, and open PRs unattended. Denies and agent overrides
 # (notably agent.reviewer.model, the heavy model) are copied verbatim; the file
 # is mounted read-only so the agent cannot relax its own rules from inside.
+#
+# The pinned model and everything in PODBOX_EXTRA_MODELS are also labeled for
+# the sandbox model picker: their display names get PODBOX_LABEL_SUFFIX
+# appended, so the picker shows which TUI runs in a sandbox. Only labeled
+# models are marked; the always-on prompt line renders raw model ids and is
+# not affected.
 compose_config() { # outfile
   local out="$1" host_cfg="$HOME/.config/opencode/opencode.json" perms='{}' agents='{}'
   if [ ! -r "$host_cfg" ]; then
@@ -241,8 +283,17 @@ compose_config() { # outfile
   else
     agents="$(jq -c '.agent // {}' "$host_cfg" 2>/dev/null || echo '{}')"
   fi
-  jq -n --arg model "$PODBOX_MODEL" --argjson perm "$perms" --argjson agents "$agents" \
-    '{"$schema":"https://opencode.ai/config.json", model:$model, permission:$perm, agent:$agents}' > "$out"
+  jq -n --arg model "$PODBOX_MODEL" --arg suffix "$PODBOX_LABEL_SUFFIX" \
+    --arg extras "$PODBOX_EXTRA_MODELS" --argjson perm "$perms" --argjson agents "$agents" '
+    ([$model] + ($extras | split(" ") | map(select(length > 0)))) as $models
+    | reduce $models[] as $pm ({};
+        ($pm | if contains("/") then split("/")[0] else . end) as $pid
+        | ($pm | if contains("/") then (split("/")[1:] | join("/")) else . end) as $mid
+        | .[$pid] = ((.[$pid] // {}) + {
+            models: ((.[$pid].models // {}) + {($mid): {name: (($mid | split("/") | last) + $suffix)}})
+          }))
+    | {"$schema": "https://opencode.ai/config.json", model: $model, provider: .,
+       permission: $perm, agent: $agents}' > "$out"
 }
 
 # --- base image --------------------------------------------------------------
@@ -559,11 +610,19 @@ ensure_created() {
   compose_config "$cfg"
 
   # Make the host's custom agents (reviewer, pr-review, ...) available inside
-  # the sandbox. Mounted read-only so the agent cannot rewrite its own
-  # definitions. Skipped when the host has no agent dir.
-  local agentargs=()
-  if [ -d "$HOME/.config/opencode/agent" ]; then
-    agentargs=(--volume "$HOME/.config/opencode/agent:$SANDBOX_HOME/.config/opencode/agent:ro")
+  # the sandbox. Both host layouts are merged (plural spelling wins on clashes,
+  # see sync_agents_dir) and mounted read-only so the agent cannot rewrite its
+  # own definitions. Re-merged on every launch (see cmd_up) so host edits reach
+  # existing sandboxes. Skipped when the host has no agent dir.
+  local agentargs=() agents_dir n_agents
+  agents_dir="$(agents_path)"
+  mkdir -p "$(dirname "$agents_dir")"
+  if [ -d "$HOME/.config/opencode/agent" ] || [ -d "$HOME/.config/opencode/agents" ]; then
+    n_agents="$(sync_agents_dir "$agents_dir")"
+    info "agents    $n_agents file(s) mounted at $SANDBOX_HOME/.config/opencode/agent"
+    agentargs=(--volume "$agents_dir:$SANDBOX_HOME/.config/opencode/agent:ro")
+  else
+    info "no host agents directory (~/.config/opencode/agent or ~/.config/opencode/agents); agents not mounted"
   fi
 
   info "creating sandbox '$NAME' for $PWD"
@@ -617,6 +676,7 @@ EOF
       podman rm -f "$NAME" >/dev/null 2>&1 || true
       remove_secrets
       rm -f "$(config_path)"
+      rm -rf "$(agents_path)"
     else
       info "sandbox '$NAME' has another attached session; leaving it running ('podbox rm' removes it)"
     fi
@@ -645,8 +705,16 @@ cmd_up() {
   if podman ps --filter "name=${NAME}" --format '{{.Names}}' | grep -qx "$NAME"; then
     if sandbox_usable; then
       info "sandbox '$NAME' already running — attaching"
-      # Re-sync host dotfiles so host edits reach this launch.
+      # Re-sync host dotfiles and re-merge custom agents so host edits reach
+      # this launch. The agents cache dir is only refreshed when it exists
+      # (i.e. it was mounted at creation); a sandbox created without it would
+      # need recreating to pick agents up.
       sync_dotfiles
+      local agents_dir
+      agents_dir="$(agents_path)"
+      if [ -d "$agents_dir" ]; then
+        sync_agents_dir "$agents_dir" >/dev/null
+      fi
     else
       info "sandbox '$NAME' is stale (no '$SANDBOX_USER' user); recreating"
       podman rm -f "$NAME" >/dev/null 2>&1 || true
@@ -685,6 +753,7 @@ cmd_rm() {
   podman rm -f "$target" >/dev/null 2>&1 || true
   remove_secrets
   rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/podbox/podbox-$target-opencode.json"
+  rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/podbox/podbox-$target-agents"
   info "removed '$target'"
 }
 
