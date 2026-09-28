@@ -14,7 +14,7 @@ This skill orchestrates the post-fork review phase.
 Carry a ticket from the fork PR to a merged, reviewed change. Invoked in
 a new session after `ticket-implementation` ends at the fork PR. Runs on
 the light model; the user owns every PR response. Do not invoke the
-local bot reviewer (`reviewer` sub-agent, `<work>/REVIEW.md`) unless the
+local bot reviewer (`reviewer` sub-agent, `.opencode/REVIEW.md`) unless the
 user asks; let the team review stand on its own.
 
 ## Inputs
@@ -34,8 +34,8 @@ user asks; let the team review stand on its own.
    exists.** If the upstream PR for this branch is already open, use it;
    otherwise push the fork branch (or the draft PR) toward upstream and
    open the PR. Use `pr-description` for the content. Record the
-   **Upstream PR** URL in the ticket ledger at `<work>/LEDGER.md`
-   (resolving `<work>` and creating the ledger if it does not exist,
+   **Upstream PR** URL in the ticket ledger at `.opencode/LEDGER.md`
+   (creating the ledger if it does not exist,
    using the `ticket-implementation` format) and check off the relevant
    item, per `ticket-implementation`.
 2. **Clear bots and automated tools.** Address the CI and bot comments
@@ -47,7 +47,8 @@ user asks; let the team review stand on its own.
 4. **Coach team review.** The team reviews; the user coordinates with
    the bot. `pr-review-response` governs each reply. The user decides
    on every response. Only run the local bot reviewer (`reviewer`
-   sub-agent, producing `<work>/REVIEW.md`) if the user explicitly asks;
+   sub-agent, producing `.opencode/REVIEW.md`) if the user explicitly
+   asks;
    otherwise leave team review to the team.
 5. **Close.** Comments addressed, PR merged, JIRA to Closed.
 

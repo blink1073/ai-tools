@@ -9,8 +9,7 @@ Address PR review comments and failing checks.
 
 ## Workflow
 
-1. **Resolve the work directory and read the state.** Resolve `<work>`
-   per `ticket-implementation`, then read `<work>/REVIEW_STATE.md` if it
+1. **Read the state.** Read `.opencode/REVIEW_STATE.md` if it
    exists. It records the last addressed watermark, head SHA, last check
    run, and every item already handled.
 2. **Resolve the PR and gather the feedback.** Infer the PR from the
@@ -23,8 +22,8 @@ Address PR review comments and failing checks.
    only those newer than `Last addressed through`, or from a head SHA or
    run not already recorded.
 4. **Delegate to the reviewer sub-agent.** Send it the checkout path, the
-   work directory, the branch or diff, and the remaining items. It
-   validates each item against the code and writes `<work>/REVIEW.md`.
+   branch or diff, and the remaining items. It
+   validates each item against the code and writes `.opencode/REVIEW.md`.
    Read REVIEW.md and confirm it exists before continuing.
 5. **Address the review.** **REQUIRED SUB-SKILL:** `pr-review-response`
    governs validation, the fixes, the single push, and response drafting.
@@ -33,14 +32,14 @@ Address PR review comments and failing checks.
 6. **Fix the failing checks.** **REQUIRED SUB-SKILL:**
    `systematic-debugging` for an unexpected failure, then
    `test-driven-development` for the fix.
-7. **Record the state.** Rewrite `<work>/REVIEW_STATE.md` with one row per
+7. **Record the state.** Rewrite `.opencode/REVIEW_STATE.md` with one row per
    item handled this run, then bump its watermark, head SHA, and last
    check run. **REQUIRED SUB-SKILL:** `ticket-implementation` to keep
-   `<work>/LEDGER.md` and the next suggested user action current.
+   `.opencode/LEDGER.md` and the next suggested user action current.
 
 ## Review state
 
-`<work>/REVIEW_STATE.md` lets a later session pick up only new items:
+`.opencode/REVIEW_STATE.md` lets a later session pick up only new items:
 GitHub marks resolved and answered threads, but not review-body findings,
 CI runs, or the fact that this agent drafts responses instead of posting
 them.

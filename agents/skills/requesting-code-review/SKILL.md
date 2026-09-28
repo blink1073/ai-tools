@@ -17,8 +17,9 @@ crafted context, never your session history. **Core principle:** review
 early, review often.
 
 In this workflow, review runs in the `reviewer` sub-agent (heavy model)
-during the **Review - Local Bot** phase, which produces `<work>/REVIEW.md`
-in the ticket work directory and precedes the draft PR. Do not skip it
+during the **Review - Local Bot** phase, which produces
+`.opencode/REVIEW.md`
+in the checkout and precedes the draft PR. Do not skip it
 because the change looks simple.
 
 ## What to hand the reviewer
@@ -30,10 +31,11 @@ because the change looks simple.
    ```
 2. **Dispatch the `reviewer` sub-agent** with focused context only:
    - `{DESCRIPTION}`: a brief summary of what was built.
-   - `{PLAN_OR_REQUIREMENTS}`: what it should do, from `<work>/PLAN.md`
+   - `{PLAN_OR_REQUIREMENTS}`: what it should do, from `PLAN.md` at the
+     repo root
      or the ticket.
    - `{BASE_SHA}` and `{HEAD_SHA}`: the change to review.
-   - The checkout path and `<work>`, so it can write `<work>/REVIEW.md`.
+   - The checkout path, so it can write `.opencode/REVIEW.md`.
 3. **Act on the feedback** in REVIEW.md:
    - Fix anything critical immediately.
    - Fix anything important before proceeding.

@@ -1,15 +1,14 @@
 ---
 name: writing-plans
-description: Use when drafting an implementation plan for a ticket before writing code. Invoked in the heavy Planning session; writes PLAN.md in the checkout's work directory.
+description: Use when drafting an implementation plan for a ticket before writing code. Invoked in the heavy Planning session; writes PLAN.md in the checkout root.
 ---
 
 # Writing Plans
 
 ## Goal
 
-Turn a ticket into a working plan, written to `PLAN.md` in the ticket
-work directory (`.opencode/work/`; resolve `<work>` per
-`ticket-implementation`). The plan is the contract the Implementing
+Turn a ticket into a working plan, written to `PLAN.md` at the repo
+root of the checkout. The plan is the contract the Implementing
 phase works from. Make
 it detailed enough to implement without re-deriving the design, and
 specific enough to spot scope creep.
@@ -70,7 +69,7 @@ confirm they pass, commit.
 
 ## PLAN.md format
 
-Write to `<work>/PLAN.md`, no other file. Lead with the point.
+Write to `PLAN.md` in the repo root, no other file. Lead with the point.
 
 ```markdown
 # [Feature Name] Implementation Plan
@@ -143,16 +142,16 @@ Fix issues inline; add a task for any uncovered requirement.
 
 ## Ticket ledger
 
-As the first session in the workflow, resolve `<work>` and initialize
-`<work>/LEDGER.md` (see `ticket-implementation` for the resolution rule
-and the ledger format) with the ticket's metadata (including
-**Branch**) and a fresh session checklist, and create `<work>/NOTES.md`
-empty if it does not exist. After writing the plan, check off
-**Planning** in the ledger.
+As the first session in the workflow, initialize `.opencode/LEDGER.md`
+(see `ticket-implementation` for the format) with the ticket's metadata
+(including **Branch**) and a fresh session checklist, and create
+`.opencode/NOTES.md` empty if it does not exist. After writing the plan,
+check off **Planning** in the ledger.
 
 ## Execution handoff
 
-Write `<work>/PLAN.md`, confirm the user has it, then stop. Do not begin
+Write `PLAN.md` at the repo root, confirm the user has it, then stop. Do
+not begin
 implementing. The Implementing session runs it through
 `executing-plans`; you are done once you tell the user the plan is
 saved.
@@ -166,4 +165,4 @@ saved.
 | Placeholder steps | Each step carries real content; a placeholder is a plan failure |
 | Including out-of-scope work in the plan | List scope explicitly, keep unrelated changes out |
 | Skipping the failing-test step for a bug | Make step one the reproduction test |
-| Starting to code after writing the plan | Write `<work>/PLAN.md`, confirm with the user, stop |
+| Starting to code after writing the plan | Write `PLAN.md` at the repo root, confirm with the user, stop |
