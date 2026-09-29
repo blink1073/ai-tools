@@ -32,8 +32,9 @@ user asks; let the team review stand on its own.
 
 1. **Open a PR against upstream, or reuse the upstream PR if one already
    exists.** If the upstream PR for this branch is already open, use it;
-   otherwise push the fork branch (or the draft PR) toward upstream and
-   open the PR. Use `pr-description` for the content. Record the
+   otherwise dispatch the `pr-creator` sub-agent to prepare the push and
+   upstream PR — it runs `pr-creation`, which uses `pr-description` for the
+   content and hands the user the commands to run. Record the
    **Upstream PR** URL in the ticket ledger at `.opencode/LEDGER.md`
    (creating the ledger if it does not exist,
    using the `ticket-implementation` format) and check off the relevant

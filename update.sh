@@ -67,6 +67,7 @@ mkdir -p opencode/agent
 cp "$opencode_dir/agent/reviewer.md" opencode/agent/reviewer.md
 cp "$opencode_dir/agent/pr-review.md" opencode/agent/pr-review.md
 cp "$opencode_dir/agent/implementer.md" opencode/agent/implementer.md
+cp "$opencode_dir/agent/pr-creator.md" opencode/agent/pr-creator.md
 cp "$opencode_dir/tui.json" opencode/tui.json
 cp "$opencode_dir/package.json" opencode/package.json
 cp "$opencode_dir/package-lock.json" opencode/package-lock.json

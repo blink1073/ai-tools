@@ -1,16 +1,12 @@
 ---
 name: pr-creation
-description: Use when preparing a GitHub pull request. Write the body to .opencode/pr-body.md and hand the user a gh pr create command to run from the host; never run gh pr create.
+description: Use when preparing a GitHub pull request. The pr-creator sub-agent runs it; the conductor dispatches that agent rather than invoking this skill directly. Writes the body to .opencode/PR-BODY.md and hands the user the push and gh pr create commands to run from the host; never runs them here.
 ---
 
 # PR Creation
 
 Agents prepare pull requests, they don't open them. Write the body to
-`.opencode/pr-body.md` and give the user the `gh pr create` command to run
-from the host.
-
-**REQUIRED SUB-SKILL:** Use the `pr-description` skill for the PR title and
-body content.
+`.opencode/PR-BODY.md` and give the user the commands to run from the host.
 
 ## Workflow
 
@@ -23,29 +19,45 @@ body content.
    - `just typing` fails: no retry. A type error isn't auto-fixed by
      re-running the check. Stop here and report it.
    - No justfile: skip pre-flight checks entirely.
-   - If pre-flight checks modified any files, tell the user which files
-     changed and leave them uncommitted. Agents don't commit.
-2. **Get the PR content.** **REQUIRED SUB-SKILL:** `pr-description` produces
-   the title and body.
-3. **Write the body.** Write the body to `.opencode/pr-body.md` in the repo,
-   creating `.opencode/` if needed. Write the `pr-description` output
-   exactly; don't trim or reformat it.
-4. **Resolve branch details.**
-   - Default branch: `gh repo view --json defaultBranchRef -q
-     .defaultBranchRef.name`.
-   - Current branch: `git branch --show-current`.
-   - Owner for `--head`: the fork/origin owner (`gh repo view --json owner -q
-     .owner.login`, or the relevant fork's owner if working from one).
-5. **Hand over the command.** Give the user this command, with the resolved
-   values filled in, to run from the host:
+   - If pre-flight checks modified any files, commit them with the rest of
+     the change in step 3.
+2. **Run the prose pass over the PR's prose.** **REQUIRED SUB-SKILL:**
+   `prose` over every docstring, comment, and documentation file the PR
+   adds or changes. Find the changed files with `git diff --name-only
+   <merge-base>..HEAD` against the default branch, then read each one and
+   fix prose that fails the `prose` checklist. Where the PR edits a
+   docstring, **REQUIRED SUB-SKILL:** `docstrings` governs it.
+3. **Commit, don't push.** Commit the work. Never push the branch and never
+   run `gh pr create`.
+4. **Write the body.** **REQUIRED SUB-SKILL:** `pr-description` finds the
+   PR template and its structure. Keep it high-level and prose-governed.
+   When the template has a changes section or a test
+   section, give each **1 to 3 bullets**, no more. Write the result to
+   `.opencode/PR-BODY.md`, creating `.opencode/` if needed.
+5. **Resolve the target.**
+   - A PR against **origin** exists for this branch: target **upstream**.
+   - No fork PR for this branch and an `upstream` remote exists: stop and
+     report the origin-versus-upstream question. A sub-agent cannot ask the
+     user directly; the conductor relays.
+   - No upstream remote: target **origin**.
+6. **Verify the default branch** of the target repo: `gh repo view
+   --json defaultBranchRef -q .defaultBranchRef.name`, adding `-R
+   <upstream-owner>/<repo>` when targeting upstream.
+7. **Prepare the commands.** Fill in the resolved values in the forms
+   below, then print them for the user. Don't run any part of them.
+
+   Target upstream:
 
    ```bash
-   git push -u origin <branch> && \
-   gh pr create --draft --base <default> --head <owner>:<branch> \
-     --title <title> --body-file .opencode/pr-body.md
+   git push -u origin <branch>
+   gh pr create --draft --repo <upstream-owner>/<repo> --base <default> \
+     --head <fork-owner>:<branch> --title "<title>" \
+     --body-file .opencode/PR-BODY.md
    ```
 
-   Don't run any part of it. Don't push the branch from here.
+   Target origin: the same without `--repo`.
+8. **Prompt the user to run them.** Print the commands and ask the user to
+   run them from the host; this run ends here.
 
 ## Common Mistakes
 
@@ -53,9 +65,13 @@ body content.
 |---|---|
 | Running `gh pr create` | Write the body and hand the user the command |
 | Pushing the branch | Put the push in the handed-over command instead |
-| Assuming `--base main` | Detect the actual default branch |
+| Writing `.opencode/pr-body.md` | Use `.opencode/PR-BODY.md` |
+| More than 3 bullets in changes or test sections | Cap each at 1 to 3 bullets |
+| Skipping the origin-PR check | Check first; an existing fork PR means target upstream |
+| Asking the user directly from the sub-agent | Report the question; the conductor relays |
+| Assuming `--base main` | Detect the actual default branch of the target repo |
 | Treating a missing `just` recipe as a failure | Skip it silently; only a real failure stops the PR |
 | Running `just lint`/`just typing` when there's no justfile | Skip pre-flight checks entirely |
 | Retrying `just typing` after a failure | Don't; type errors aren't auto-fixed by re-running |
-| Committing pre-flight changes | Leave them for the user and report the files |
-| Reformatting the body when writing the file | Write the `pr-description` output exactly |
+| Leaving pre-flight changes uncommitted | Commit them with the change in step 3 |
+| Reformatting the body after drafting it | Apply the cap while drafting, then write the file once |

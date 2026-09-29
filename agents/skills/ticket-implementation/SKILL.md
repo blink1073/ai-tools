@@ -16,7 +16,7 @@ reimplementing them.
 
 ## Orchestration and model weight
 
-Work runs in two top-level sessions plus two sub-agents. **Planning is a
+Work runs in two top-level sessions plus three sub-agents. **Planning is a
 dedicated top-level session** so the user can interact with it directly.
 It runs on the **heavy model** (GLM 5.2); the user's long-running
 **conductor** session runs the **light model** and never does the heavy
@@ -27,7 +27,7 @@ reasoning itself.
 | Planning | Top-level session | Heavy | PLAN.md in the checkout root |
 | Implementing | `implementer` sub-agent | Light | Working tree and commits |
 | Review - Local Bot | `reviewer` sub-agent, invoked by `implementer` | Heavy | `.opencode/REVIEW.md` |
-| Review - Self | Conductor | Light | Draft PR to the fork |
+| Review - Self | `pr-creator` sub-agent, dispatched by the conductor | Light | `.opencode/PR-BODY.md` |
 | Review - Automated tools | Conductor | Light | Push toward the upstream PR |
 | Review - Team | Conductor | Light | Coordinate with the team |
 
@@ -167,11 +167,12 @@ phase starts.
      draft fork PR.
    - **Review - Self (light).** Before opening the draft PR to the
      fork, offer to make a targeted evergreen patch build — ask the
-     user rather than triggering a CI build unprompted. Then open a
-     draft PR to the user's fork — for security bugs, a **private GHSA
-     fork**. **REQUIRED SUB-SKILL:** `pr-creation` governs opening it
-     (which uses `pr-description` for the content) — don't invoke
-     `pr-description` directly and skip `pr-creation`'s mechanics. When
+     user rather than triggering a CI build unprompted. Then dispatch the
+     `pr-creator` sub-agent to prepare the draft fork PR — for security
+     bugs, a **private GHSA fork**. The sub-agent runs the `pr-creation`
+     skill, which uses `pr-description` for the content and hands the user
+     the push and `gh pr create` commands to run; don't invoke
+     `pr-description` or `pr-creation` directly and skip the sub-agent. When
      the draft PR is open, record its **Fork PR** URL in the ledger,
      check off **Review - Self**, and set the next action to start the
      code-review session.
@@ -192,7 +193,7 @@ phase starts.
 | Continuing before the reviewer sub-agent wrote REVIEW.md | Read `.opencode/REVIEW.md` and confirm it exists first |
 | Treating the plan as a gist to publish | Plans live at the repo root as `PLAN.md`, not a gist |
 | Re-explaining a sub-skill's process inline instead of invoking it | Invoke the sub-skill; don't duplicate its process here |
-| Invoking `pr-description` directly to open the PR | Invoke `pr-creation` instead — it handles the description via `pr-description` itself |
+| Invoking `pr-description` or `pr-creation` directly to open the PR | Dispatch the `pr-creator` sub-agent instead — it runs `pr-creation`, which handles the description via `pr-description` itself |
 | Skipping `/review` or addressing review comments without user sign-off | Run the staged review loop; the user owns responses |
 | Writing PLAN.md anywhere but the repo root, or the other files outside `.opencode/` | PLAN.md at the root; REVIEW.md, LEDGER.md, NOTES.md, and REVIEW_STATE.md in `.opencode/` |
 | Committing a work product | `.opencode/` is gitignored and PLAN.md is locally excluded; never `git add` either |

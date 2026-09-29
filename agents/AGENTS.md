@@ -4,9 +4,10 @@ Git repositories live in `$HOME/workspace`, one directory per repo.
 
 ## Pull Requests
 
-Agents prepare PRs, they don't open them. Write the body to
-`.opencode/pr-body.md` and give the user the `gh pr create` command to run
-from the host.
+Agents prepare PRs, they don't open them. Always create PRs through the
+`pr-creator` sub-agent: it runs the `pr-creation` skill, writes the body to
+`.opencode/PR-BODY.md`, and gives the user the push and `gh pr create`
+commands to run from the host.
 
 ## Prose Is Skill-Gated
 
