@@ -32,17 +32,18 @@
 # environment variables, so they are not visible via `podman inspect` or /proc.
 #
 # The GitHub token is a fine-grained read-only personal access token
-# (github_pat_...) taken from ~/github_token.sh, which must export GITHUB_TOKEN:
-#   echo 'export GITHUB_TOKEN=github_pat_xxx' > ~/github_token.sh
+# (github_pat_...) taken from ~/github_token.sh, which must export
+# GH_TOKEN_SANDBOX:
+#   echo 'export GH_TOKEN_SANDBOX=github_pat_xxx' > ~/github_token.sh
 # It is re-read on every create, so refreshing the token file is picked up on
 # the next launch. A create without it fails up front rather than mid-launch.
-# GH_TOKEN_SANDBOX overrides the file. The token is injected as a podman secret
-# (never an environment variable, so it is not visible via `podman inspect` or
-# /proc) and used by git inside the sandbox through a small credential helper.
-# No host git credential helper (osxkeychain, gh) is shared. GH_TOKEN_SANDBOX
-# is the safe override name: unlike GH_TOKEN/GITHUB_TOKEN it is not recognized
-# by git or gh on the host, so exporting it in your shell can never shadow your
-# real read/write credentials.
+# The environment variable GH_TOKEN_SANDBOX overrides the file. The token is
+# injected as a podman secret (never an environment variable, so it is not
+# visible via `podman inspect` or /proc) and used by git inside the sandbox
+# through a small credential helper. No host git credential helper
+# (osxkeychain, gh) is shared. GH_TOKEN_SANDBOX is the safe name: unlike
+# GH_TOKEN/GITHUB_TOKEN it is not recognized by git or gh on the host, so
+# exporting it in your shell can never shadow your real read/write credentials.
 #
 # The fireworks API key is taken from your opencode auth store on the host,
 # falling back to the FIREWORKS_API_KEY env var:
@@ -133,11 +134,11 @@ info() { printf 'podbox: %s\n' "$*"; }
 
 # --- secret management ----------------------------------------------------
 
-# The GitHub credential: GH_TOKEN_SANDBOX wins, else the on-host token file,
-# which holds a fine-grained read-only PAT and is re-read on every create, so
-# a refreshed token is picked up without any sandbox-side state. Sourced in a
-# subshell with nounset off: the file may reference variables it does not
-# itself define.
+# The GitHub credential: the environment variable GH_TOKEN_SANDBOX wins, else
+# the on-host token file, which holds a fine-grained read-only PAT and is
+# re-read on every create, so a refreshed token is picked up without any
+# sandbox-side state. Sourced in a subshell with nounset off: the file may
+# reference variables it does not itself define.
 gh_token_value() {
   if [ -n "${GH_TOKEN_SANDBOX:-}" ]; then
     printf '%s' "$GH_TOKEN_SANDBOX"
@@ -146,7 +147,7 @@ gh_token_value() {
   local f="$HOME/github_token.sh"
   [ -r "$f" ] || return 1
   # shellcheck source=/dev/null
-  (set +u; . "$f"; printf '%s' "${GITHUB_TOKEN:-}") || return 1
+  (set +u; . "$f"; printf '%s' "${GH_TOKEN_SANDBOX:-}") || return 1
 }
 
 # A create needs the GitHub credential up front: fail before any container
@@ -156,7 +157,7 @@ gh_token_value() {
 require_gh_token() {
   [ -n "${GH_TOKEN_SANDBOX:-}" ] && return 0
   local v
-  v="$(gh_token_value)" || die "no GitHub credential: GH_TOKEN_SANDBOX unset and no readable $HOME/github_token.sh exporting GITHUB_TOKEN (a fine-grained read-only PAT)"
+  v="$(gh_token_value)" || die "no GitHub credential: GH_TOKEN_SANDBOX unset and no readable $HOME/github_token.sh exporting GH_TOKEN_SANDBOX (a fine-grained read-only PAT)"
   case "$v" in
     github_pat_*) ;;
     *) die "$HOME/github_token.sh does not export a fine-grained PAT (github_pat_...); classic tokens carry write scope" ;;

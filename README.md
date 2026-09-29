@@ -84,11 +84,11 @@ labeled models are marked; the always-on prompt line renders raw model ids and
 is not affected.
 
 GitHub credential: the sandbox token is a fine-grained read-only PAT
-(`github_pat_...`) taken from `~/github_token.sh` (`export GITHUB_TOKEN=...`),
-re-read on every create so a refreshed token needs no sandbox-side state.
-`GH_TOKEN_SANDBOX` overrides the file. A launch that would create the sandbox
-fails up front when the file is missing or holds a classic token, rather than
-mid-launch.
+(`github_pat_...`) taken from `~/github_token.sh` (`export
+GH_TOKEN_SANDBOX=...`), re-read on every create so a refreshed token needs no
+sandbox-side state. The `GH_TOKEN_SANDBOX` environment variable overrides the
+file. A launch that would create the sandbox fails up front when the file is
+missing or holds a classic token, rather than mid-launch.
 
 Resource caps: each sandbox is capped at `PODBOX_CPUS` (default 2) and
 `PODBOX_MEMORY` (default 3g).

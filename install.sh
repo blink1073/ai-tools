@@ -91,15 +91,19 @@ if command -v podman >/dev/null 2>&1; then
   ln -sfn "$repo/sandbox/opencode-sandbox" "$sandbox_bin/opencode-sandbox"
   # The sandbox GitHub credential comes from ~/github_token.sh (a fine-grained
   # read-only PAT, re-read on every launch). Fail at install time rather than
-  # mid-launch. Sourced with tracing off so set -x never prints the token.
+  # mid-launch. xtrace is disabled around the check because bash traces plain
+  # assignments (including the value), so turning it off only inside the command
+  # substitution would still print the token.
   if [ ! -f "$HOME/github_token.sh" ]; then
-    echo "error: no $HOME/github_token.sh; create it to export GITHUB_TOKEN with a fine-grained read-only PAT" >&2
+    echo "error: no $HOME/github_token.sh; create it to export GH_TOKEN_SANDBOX with a fine-grained read-only PAT" >&2
     exit 1
   fi
-  tok="$(set +ex; . "$HOME/github_token.sh" && printf '%s' "${GITHUB_TOKEN:-}")"
+  set +ex
+  tok="$(. "$HOME/github_token.sh" && printf '%s' "${GH_TOKEN_SANDBOX:-}")"
   case "$tok" in
     github_pat_*) ;;
-    *) echo "error: $HOME/github_token.sh does not export a fine-grained PAT (github_pat_...); classic tokens carry write scope" >&2; exit 1 ;;
+    *) set -x; echo "error: $HOME/github_token.sh does not export a fine-grained PAT (github_pat_...); classic tokens carry write scope" >&2; exit 1 ;;
   esac
   unset tok
+  set -ex
 fi
