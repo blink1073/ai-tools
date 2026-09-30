@@ -195,6 +195,8 @@ count_sessions() {
   podman exec --user "$SANDBOX_USER" "$NAME" sh -c '
     n=0
     for d in /proc/[0-9]*; do
+      # Skip this scanner: its own cmdline embeds the patterns matched below.
+      [ "$d" = "/proc/$$" ] && continue
       [ -r "$d/comm" ] || continue
       comm=$(cat "$d/comm" 2>/dev/null) || continue
       case "$comm" in
@@ -661,8 +663,9 @@ EOF
   # Append the caller's args to the entry command. They are passed as bash
   # positional parameters (not interpolated into the command string), so
   # quoting and special characters survive the trip into the sandbox.
-  podman exec -it --user "$SANDBOX_USER" "$NAME" bash -lc "$PODBOX_ENTRY \"\$@\"" podbox "$@"
-  local rc=$?
+  # Capture a non-zero exit instead of letting set -e abort before teardown.
+  local rc=0
+  podman exec -it --user "$SANDBOX_USER" "$NAME" bash -lc "$PODBOX_ENTRY \"\$@\"" podbox "$@" || rc=$?
   if [ "${PODBOX_TEARDOWN:-1}" = 1 ]; then
     # Keep-alive: our own opencode process can outlive the exec briefly, so
     # poll before deciding; a still-attached session leaves the sandbox up.
