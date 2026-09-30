@@ -66,16 +66,6 @@ reflected on the next relaunch. Agents kept at the project level
 (`.opencode/agent{,s}/` in the repo) need no sync: the workspace mount makes
 them visible to the sandboxed opencode directly.
 
-SSH commit signing: a host SSH signing key pair is synced into the sandbox
-`~/.ssh` and git there is configured to sign every commit and tag with it
-(`gpg.format ssh`, `commit.gpgsign`, `tag.gpgsign`), so sandbox commits meet
-the same all-commits-must-be-signed policy as the host. The pair is chosen by,
-in order: `PODBOX_SIGNING_KEY` (a `.pub` path), a dedicated
-`~/.ssh/id_ed25519_sign_sbx` pair, else the pair named by the host git config's
-`user.signingkey`. It must be passphrase-free (signing runs non-interactively);
-a key that is not a file, or a `.pub` without its private half, skips the sync
-with a warning. Register its public half on GitHub as a **Signing Key**.
-
 Model labeling: the pinned model (`PODBOX_MODEL`) and anything listed in
 `PODBOX_EXTRA_MODELS` (space-separated provider/model ids) get
 `PODBOX_LABEL_SUFFIX` (default ` (sandbox)`) appended to their display names in

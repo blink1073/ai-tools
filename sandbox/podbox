@@ -64,14 +64,6 @@
 # on their next launch. The sandbox git config's core.excludesFile points at
 # the copied .gitignore, so git ignores the same paths as the host.
 #
-# An SSH signing key pair is synced into the sandbox and git there is
-# configured to sign every commit and tag with it, so sandbox commits meet
-# the host signing policy. The pair is chosen by, in order: PODBOX_SIGNING_KEY
-# (a .pub path), a dedicated ~/.ssh/id_ed25519_sign_sbx pair, else the pair
-# named by the host git config's user.signingkey. It must be passphrase-free
-# (signing runs non-interactively); a signingkey that is not a file — a
-# literal SSH key or a GPG key id — is skipped, as is a missing private half.
-#
 # opencode runs with --auto: it auto-approves every `ask` but still enforces
 # `deny`. To keep that safe, the sandbox config is generated from the pinned
 # model plus the permission rules in ~/.config/opencode/opencode.json and
@@ -396,9 +388,8 @@ install_gh() {
   ' >/dev/null 2>&1 || true
 }
 
-# Mirror host dotfiles into the sandbox home and configure signing, so the
-# sandbox matches the host on every launch (at creation, and on every later
-# attach).
+# Mirror host dotfiles into the sandbox home so the sandbox matches the host
+# on every launch (at creation, and on every later attach).
 sync_dotfiles() {
   local f
   for f in .gitignore .bashrc; do
@@ -414,60 +405,7 @@ sync_dotfiles() {
       info "could not copy $f into $NAME"
     fi
   done
-  sync_signing_key
   return 0
-}
-
-# Sync the host's SSH signing key pair into the sandbox and require signed
-# commits and tags there, so sandbox commits meet the host signing policy
-# (signing happens locally in the sandbox; no SSH agent forwarding is used).
-# See the header for how the pair is chosen.
-sync_signing_key() {
-  local key="${PODBOX_SIGNING_KEY:-}"
-  if [ -z "$key" ] && [ -f "$HOME/.ssh/id_ed25519_sign_sbx.pub" ]; then
-    key="$HOME/.ssh/id_ed25519_sign_sbx.pub"
-  fi
-  if [ -z "$key" ]; then
-    key="$(git config --global --get user.signingkey 2>/dev/null || true)"
-  fi
-  [ -z "$key" ] && return 0
-  case "$key" in
-    \~*) key="$HOME${key#\~}" ;;
-    /*) ;;
-    *) key="$HOME/$key" ;;
-  esac
-  local pub priv
-  case "$key" in
-    *.pub) pub="$key"; priv="${key%.pub}" ;;
-    *)     priv="$key"; pub="$key.pub" ;;
-  esac
-  if [ ! -f "$priv" ] || [ ! -f "$pub" ]; then
-    info "signing key pair incomplete ($priv and $pub); not syncing"
-    return 0
-  fi
-  if ! podman exec --user "$SANDBOX_USER" "$NAME" bash -c 'umask 077; mkdir -p ~/.ssh; chmod 700 ~/.ssh' 2>/dev/null; then
-    info "could not prepare ~/.ssh in $NAME"
-    return 0
-  fi
-  local priv_name pub_name
-  priv_name="$(basename "$priv")"
-  pub_name="$(basename "$pub")"
-  if ! podman cp "$priv" "$NAME:$SANDBOX_HOME/.ssh/$priv_name" >/dev/null 2>&1 \
-     || ! podman cp "$pub" "$NAME:$SANDBOX_HOME/.ssh/$pub_name" >/dev/null 2>&1; then
-    info "could not copy the signing key into $NAME"
-    return 0
-  fi
-  podman exec --user "$SANDBOX_USER" "$NAME" sudo chmod 600 "$SANDBOX_HOME/.ssh/$priv_name" >/dev/null 2>&1 || true
-  podman exec --user "$SANDBOX_USER" "$NAME" sudo chmod 644 "$SANDBOX_HOME/.ssh/$pub_name" >/dev/null 2>&1 || true
-  podman exec --user "$SANDBOX_USER" "$NAME" sudo chown -R "$SANDBOX_USER:$SANDBOX_USER" "$SANDBOX_HOME/.ssh" >/dev/null 2>&1 || true
-  if podman exec --user "$SANDBOX_USER" "$NAME" git config --global gpg.format ssh \
-     && podman exec --user "$SANDBOX_USER" "$NAME" git config --global user.signingkey "$SANDBOX_HOME/.ssh/$pub_name" \
-     && podman exec --user "$SANDBOX_USER" "$NAME" git config --global commit.gpgsign true \
-     && podman exec --user "$SANDBOX_USER" "$NAME" git config --global tag.gpgsign true; then
-    info "signing commits with $SANDBOX_HOME/.ssh/$pub_name"
-  else
-    info "could not configure git signing in $NAME"
-  fi
 }
 
 setup_container() {
