@@ -89,6 +89,11 @@
 # trigger the kernel OOM-killer. The defaults assume a 12 GiB VM; size the VM
 # accordingly (on the host):
 #   podman machine stop && podman machine set --memory 12288 && podman machine start
+#
+# On a terminal, provisioning and teardown draw a small status panel (sandbox
+# name, project directory, spinner) instead of the raw progress lines, and
+# provisioning output is captured and shown only on failure. Set NO_COLOR to
+# get the plain `podbox:` output instead; the panel is cosmetic only.
 
 set -euo pipefail
 
@@ -265,9 +270,12 @@ sync_agents_dir() { # dest
 #
 # The pinned model and everything in PODBOX_EXTRA_MODELS are also labeled for
 # the sandbox model picker: their display names get PODBOX_LABEL_SUFFIX
-# appended, so the picker shows which TUI runs in a sandbox. Only labeled
-# models are marked; the always-on prompt line renders raw model ids and is
-# not affected.
+# appended, so the picker shows which TUI runs in a sandbox. The display name is
+# opencode's own — looked up in its models.dev cache — not the raw model id, so
+# a model shows as "DeepSeek V4.1 Flash (sandbox)" rather than
+# "deepseek-v4p1-flash (sandbox)". Models missing from the catalog fall back to
+# their id. Only labeled models are marked; the always-on prompt line renders
+# raw model ids and is not affected.
 compose_config() { # outfile
   local out="$1" host_cfg="$HOME/.config/opencode/opencode.json" perms='{}' agents='{}'
   if [ ! -r "$host_cfg" ]; then
@@ -278,14 +286,21 @@ compose_config() { # outfile
   else
     agents="$(jq -c '.agent // {}' "$host_cfg" 2>/dev/null || echo '{}')"
   fi
-  jq -n --arg model "$PODBOX_MODEL" --arg suffix "$PODBOX_LABEL_SUFFIX" \
+  # opencode's models.dev catalog, used only to resolve display names. Missing
+  # cache is fine: slurping /dev/null yields [], so every lookup falls back.
+  local catalog="${XDG_CACHE_HOME:-$HOME/.cache}/opencode/models.json"
+  [ -r "$catalog" ] || catalog=/dev/null
+  jq -n --slurpfile catalog "$catalog" --arg model "$PODBOX_MODEL" \
+    --arg suffix "$PODBOX_LABEL_SUFFIX" \
     --arg extras "$PODBOX_EXTRA_MODELS" --argjson perm "$perms" --argjson agents "$agents" '
-    ([$model] + ($extras | split(" ") | map(select(length > 0)))) as $models
+    ($catalog[0] // {}) as $cat
+    | ([$model] + ($extras | split(" ") | map(select(length > 0)))) as $models
     | reduce $models[] as $pm ({};
         ($pm | if contains("/") then split("/")[0] else . end) as $pid
         | ($pm | if contains("/") then (split("/")[1:] | join("/")) else . end) as $mid
+        | ($cat[$pid].models[$mid].name // ($mid | split("/") | last)) as $base
         | .[$pid] = ((.[$pid] // {}) + {
-            models: ((.[$pid].models // {}) + {($mid): {name: (($mid | split("/") | last) + $suffix)}})
+            models: ((.[$pid].models // {}) + {($mid): {name: ($base + $suffix)}})
           }))
     | {"$schema": "https://opencode.ai/config.json", model: $model, provider: .,
        permission: $perm, agent: $agents}' > "$out"
@@ -491,6 +506,201 @@ install_opencode() {
   ' || die "opencode install failed; set PODBOX_ENTRY=bash to skip it"
 }
 
+# --- splash screen -----------------------------------------------------------
+
+# Terminal splash shown while provisioning and tearing down a sandbox: a
+# box-drawn status card with the sandbox name (bold) and project directory, a
+# spinner while work runs, and a status line that flips from a yellow ●
+# (working) to a green ■ (done). Purely cosmetic: on a non-terminal, or with
+# NO_COLOR set, the plain `info` output is used instead, exactly as before.
+# _splash_vars freezes the geometry so the working and done states line up; the
+# verb pairs are equal-length (booting/running, stopping/stopped) to keep the
+# box edges aligned.
+SPLASH_DIM='' SPLASH_RST='' SPLASH_BOLD='' SPLASH_YEL='' SPLASH_GRN=''
+SPLASH_W=0 SPLASH_BAR='' SPLASH_PROJ='' SPLASH_L2PAD=0 SPLASH_COL=1
+_SPLASH_HIDDEN=0
+
+splash_enabled() { [ -t 2 ] && [ -z "${NO_COLOR:-}" ]; }
+
+# Restore the cursor if a splash hid it (a Ctrl-C mid-provision must not leave
+# the terminal without a cursor). Background workers reset the EXIT trap so
+# their captured output stays free of escape codes.
+splash_show_cursor() {
+  [ "$_SPLASH_HIDDEN" = 1 ] && printf '\033[?25h' >&2
+  _SPLASH_HIDDEN=0
+}
+trap splash_show_cursor EXIT
+
+_splash_vars() { # $1 = the longest verb this screen will draw
+  SPLASH_DIM=$'\033[90m' SPLASH_RST=$'\033[0m' SPLASH_BOLD=$'\033[1m'
+  SPLASH_YEL=$'\033[33m' SPLASH_GRN=$'\033[32m'
+  SPLASH_PROJ="$PWD"
+  case "$SPLASH_PROJ" in
+    "$HOME") SPLASH_PROJ="~" ;;
+    "$HOME"/*) SPLASH_PROJ="~${SPLASH_PROJ#"$HOME"}" ;;
+  esac
+  local l1="● $1 $NAME" l2="· project $SPLASH_PROJ"
+  SPLASH_W=${#l1}
+  [ "${#l2}" -gt "$SPLASH_W" ] && SPLASH_W=${#l2}
+  SPLASH_L2PAD=$(( SPLASH_W - ${#l2} ))
+  SPLASH_BAR=''
+  local j
+  for ((j = 0; j < SPLASH_W + 4; j++)); do SPLASH_BAR+='─'; done
+}
+
+_splash_status() { # $1 color, $2 symbol, $3 verb: the status line only
+  local plain="$2 $3 $NAME"
+  local pad=$(( SPLASH_W - ${#plain} ))
+  [ "$pad" -lt 0 ] && pad=0
+  printf '\033[%dG│  %s%s%s %s %s%s%s%*s  │\n' \
+    "$SPLASH_COL" "$1" "$2" "$SPLASH_RST" "$3" "$SPLASH_BOLD" "$NAME" "$SPLASH_RST" "$pad" "" >&2
+}
+
+_splash_panel() { # $1 color, $2 symbol, $3 verb: the whole four-line box
+  printf '\033[%dG%s┌%s┐%s\n' "$SPLASH_COL" "$SPLASH_DIM" "$SPLASH_BAR" "$SPLASH_RST" >&2
+  _splash_status "$1" "$2" "$3"
+  printf '\033[%dG│  %s· project%s %s%*s  │\n' \
+    "$SPLASH_COL" "$SPLASH_DIM" "$SPLASH_RST" "$SPLASH_PROJ" "$SPLASH_L2PAD" "" >&2
+  printf '\033[%dG%s└%s┘%s\n' "$SPLASH_COL" "$SPLASH_DIM" "$SPLASH_BAR" "$SPLASH_RST" >&2
+}
+
+_splash_spinner() { # $1 pid to watch, $2 label; clears its own line when done
+  local frames='|/-\' i=0
+  while kill -0 "$1" 2>/dev/null; do
+    i=$(( (i + 1) % 4 ))
+    printf '\r\033[K\033[%dG  %s%s%s %s' \
+      "$SPLASH_COL" "$SPLASH_YEL" "${frames:i:1}" "$SPLASH_RST" "$2" >&2
+    sleep 0.2
+  done
+  printf '\r\033[K' >&2
+}
+
+_splash_center() { # home the cursor to the top of the five-line block
+  local width=$(( SPLASH_W + 6 )) rows cols row=1 size
+  # Size from the tty the panel is drawn on, not tput: tput honors a stale
+  # exported LINES/COLUMNS and needs a working terminfo, so it can disagree
+  # with the visible window.
+  size="$(stty size <&2 2>/dev/null)" || size=""
+  rows="${size%% *}"
+  cols="${size##* }"
+  SPLASH_COL=1
+  if [ -n "$rows" ] && [ -n "$cols" ] && [ "$rows" -ge 7 ] && [ "$cols" -ge "$width" ]; then
+    row=$(( (rows - 5) / 2 + 1 ))
+    SPLASH_COL=$(( (cols - width) / 2 + 1 ))
+  fi
+  printf '\033[%d;1H' "$row" >&2
+}
+
+# Provision behind the splash. On a terminal the screen is cleared, the panel
+# is drawn, and the command's output is captured and shown only when it fails
+# (success is summarized by the ready line); otherwise the command runs with
+# its output streaming as usual.
+splash_provision() { # $1 label, remaining args = command
+  local label="$1"; shift
+  if ! splash_enabled; then
+    "$@"
+    return
+  fi
+  local t0=$SECONDS out rc=0 pid
+  printf '\033[H\033[2J\033[3J' >&2
+  printf '\033[?25l' >&2
+  _SPLASH_HIDDEN=1
+  _splash_vars "booting"
+  _splash_center
+  _splash_panel "$SPLASH_YEL" "●" "booting"
+  out="$(mktemp)"
+  ( trap - EXIT; "$@" ) >"$out" 2>&1 &
+  pid=$!
+  _splash_spinner "$pid" "$label"
+  wait "$pid" || rc=$?
+  if [ "$rc" != 0 ]; then
+    splash_show_cursor
+    printf 'podbox: %s failed (exit %s); output:\n' "$label" "$rc" >&2
+    cat "$out" >&2
+    rm -f "$out"
+    return "$rc"
+  fi
+  rm -f "$out"
+  printf '\033[3A' >&2
+  _splash_status "$SPLASH_GRN" "■" "running"
+  printf '\033[2B' >&2
+  printf '\033[%dG%s  ready in %ss · list all: podbox ls%s\n' \
+    "$SPLASH_COL" "$SPLASH_DIM" "$(( SECONDS - t0 ))" "$SPLASH_RST" >&2
+  splash_show_cursor
+}
+
+# Tear the sandbox down behind the splash. The session poll runs first (so a
+# still-attached session can leave the sandbox up), then the stop and removal;
+# the panel stays on screen through both so there is never a silent gap. The
+# plain (non-terminal) form also serves callers whose output must stay readable.
+splash_teardown() {
+  local n=""
+  if ! splash_enabled; then
+    for _ in 1 2 3 4 5; do
+      n="$(count_sessions)"
+      [ "$n" = 0 ] && break
+      sleep 1
+    done
+    if [ "$n" != 0 ]; then
+      info "sandbox '$NAME' has another attached session; leaving it running ('podbox rm' removes it)"
+      return
+    fi
+    info "exited sandbox '$NAME' — tearing down"
+    podman rm -f "$NAME" >/dev/null 2>&1 || true
+    remove_secrets
+    rm -f "$(config_path)"
+    rm -rf "$(agents_path)"
+    return
+  fi
+  local t0=$SECONDS poll_out poll_pid spid
+  printf '\033[H\033[2J\033[3J' >&2
+  printf '\033[?25l' >&2
+  _SPLASH_HIDDEN=1
+  _splash_vars "stopping"
+  _splash_center
+  _splash_panel "$SPLASH_YEL" "●" "stopping"
+  poll_out="$(mktemp)"
+  (
+    trap - EXIT
+    n=""
+    for _ in 1 2 3 4 5; do
+      n="$(count_sessions)"
+      [ "$n" = 0 ] && break
+      sleep 1
+    done
+    printf '%s' "$n" > "$poll_out"
+  ) &
+  poll_pid=$!
+  _splash_spinner "$poll_pid" "stopping sandbox"
+  wait "$poll_pid"
+  n="$(cat "$poll_out")"; rm -f "$poll_out"
+  if [ "$n" != 0 ]; then
+    splash_show_cursor
+    printf '\033[H\033[2J' >&2
+    info "sandbox '$NAME' has another attached session; leaving it running ('podbox rm' removes it)"
+    return
+  fi
+  (
+    trap - EXIT
+    podman rm -f "$NAME" >/dev/null 2>&1 || true
+    remove_secrets
+    rm -f "$(config_path)"
+    rm -rf "$(agents_path)"
+  ) &
+  spid=$!
+  _splash_spinner "$spid" "stopping sandbox"
+  wait "$spid"
+  printf '\033[3A' >&2
+  _splash_status "$SPLASH_GRN" "■" "stopped"
+  printf '\033[2B' >&2
+  printf '\033[%dG%s  stopped in %ss · restart with: podbox up%s\n' \
+    "$SPLASH_COL" "$SPLASH_DIM" "$(( SECONDS - t0 ))" "$SPLASH_RST" >&2
+  splash_show_cursor
+  # Leave a clean screen: the panel has done its job and the shell prompt is
+  # what comes next.
+  printf '\033[H\033[2J' >&2
+}
+
 # --- commands ---------------------------------------------------------------
 
 ensure_machine() {
@@ -605,29 +815,16 @@ EOF
   local rc=0
   podman exec -it --user "$SANDBOX_USER" "$NAME" bash -lc "$PODBOX_ENTRY \"\$@\"" podbox "$@" || rc=$?
   if [ "${PODBOX_TEARDOWN:-1}" = 1 ]; then
-    # Keep-alive: our own opencode process can outlive the exec briefly, so
-    # poll before deciding; a still-attached session leaves the sandbox up.
-    local n=""
-    for _ in 1 2 3 4 5; do
-      n="$(count_sessions)"
-      [ "$n" = 0 ] && break
-      sleep 1
-    done
-    if [ "$n" = 0 ]; then
-      info "exited sandbox '$NAME' — tearing down"
-      podman rm -f "$NAME" >/dev/null 2>&1 || true
-      remove_secrets
-      rm -f "$(config_path)"
-      rm -rf "$(agents_path)"
-    else
-      info "sandbox '$NAME' has another attached session; leaving it running ('podbox rm' removes it)"
-    fi
+    # Keep-alive: splash_teardown polls for a still-attached session (our own
+    # opencode can outlive the exec briefly) and leaves the sandbox up if one
+    # is found; otherwise it stops and removes it behind the shutdown panel.
+    splash_teardown
   fi
   exit $rc
 }
 
 cmd_create() {
-  ensure_created
+  splash_provision "booting sandbox" ensure_created
   run_entry "$@"
 }
 
@@ -641,17 +838,23 @@ require_sandbox() {
   sandbox_usable || die "sandbox '$NAME' isn't usable (not running, or created before the '$SANDBOX_USER' user); run 'podbox rm' then 'podbox create'"
 }
 
-cmd_up() {
+# The pre-session work cmd_up runs: ensure the VM and path are usable, then
+# attach to a running sandbox (refreshing its config and dotfiles) or create
+# one. Kept separate so the whole phase can run behind the splash.
+prepare_up() {
   ensure_machine
   ensure_host_path
   if podman ps --filter "name=${NAME}" --format '{{.Names}}' | grep -qx "$NAME"; then
     if sandbox_usable; then
       info "sandbox '$NAME' already running — attaching"
-      # Re-sync host dotfiles and re-merge custom agents so host edits reach
-      # this launch. The agents cache dir is only refreshed when it exists
-      # (i.e. it was mounted at creation); a sandbox created without it would
-      # need recreating to pick agents up.
+      # Re-sync host dotfiles, regenerate the opencode config, and re-merge
+      # custom agents so host edits (and podbox updates) reach this launch. The
+      # agents cache dir is only refreshed when it exists (i.e. it was mounted
+      # at creation); a sandbox created without it would need recreating to pick
+      # agents up. compose_config rewrites the bind-mounted config in place, so
+      # the running container sees the update.
       sync_dotfiles
+      compose_config "$(config_path)"
       local agents_dir
       agents_dir="$(agents_path)"
       if [ -d "$agents_dir" ]; then
@@ -665,6 +868,10 @@ cmd_up() {
   else
     ensure_created
   fi
+}
+
+cmd_up() {
+  splash_provision "starting sandbox" prepare_up
   run_entry "$@"
 }
 

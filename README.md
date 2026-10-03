@@ -46,6 +46,12 @@ Keep-alive: on exit the sandbox stays up while another session is still
 attached (an opencode TUI or an interactive shell); the last session out tears
 it down, along with its secrets and generated config.
 
+Splash: on a terminal, provisioning and teardown draw a box-drawn status card
+with the sandbox name and project directory, a spinner while work runs, and a
+status line that flips from a yellow `●` to a green `■`. Provisioning output is
+captured and shown only on failure. On a non-terminal, or with `NO_COLOR` set,
+the plain `podbox:` lines are printed instead.
+
 `opencode-sandbox ls` (global, not per-directory) lists running sandboxes with
 how long ago each was last used and the slots used against the
 `PODBOX_MAX_SANDBOXES` concurrency cap, which launches refuse to exceed.
@@ -69,9 +75,10 @@ them visible to the sandboxed opencode directly.
 Model labeling: the pinned model (`PODBOX_MODEL`) and anything listed in
 `PODBOX_EXTRA_MODELS` (space-separated provider/model ids) get
 `PODBOX_LABEL_SUFFIX` (default ` (sandbox)`) appended to their display names in
-the sandbox model picker, so the picker shows which TUI runs in a sandbox. Only
-labeled models are marked; the always-on prompt line renders raw model ids and
-is not affected.
+the sandbox model picker, so the picker shows which TUI runs in a sandbox. The
+base name is opencode's models.dev display name (`DeepSeek V4.1 Flash`), falling
+back to the raw model id when the catalog has no entry. Only labeled models are
+marked; the always-on prompt line renders raw model ids and is not affected.
 
 GitHub credential: the sandbox token is a fine-grained read-only PAT
 (`github_pat_...`) taken from `~/github_token.sh` (`export
