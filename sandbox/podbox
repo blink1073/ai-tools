@@ -101,7 +101,7 @@ GITHUB_USER="${GITHUB_USER:-}"
 # config. Override with PODBOX_GIT_NAME / PODBOX_GIT_EMAIL.
 GIT_NAME="${PODBOX_GIT_NAME:-$(git config --global user.name 2>/dev/null || git config user.name 2>/dev/null || true)}"
 GIT_EMAIL="${PODBOX_GIT_EMAIL:-$(git config --global user.email 2>/dev/null || git config user.email 2>/dev/null || true)}"
-PODBOX_MODEL="${PODBOX_MODEL:-fireworks-ai/accounts/fireworks/models/deepseek-v4-pro-0813}"
+PODBOX_MODEL="${PODBOX_MODEL:-fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash}"
 # Models labeled in the sandbox model picker: the pinned model plus
 # PODBOX_EXTRA_MODELS (space-separated provider/model ids) get
 # PODBOX_LABEL_SUFFIX appended to their display names.
