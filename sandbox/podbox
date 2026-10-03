@@ -101,7 +101,7 @@ GITHUB_USER="${GITHUB_USER:-}"
 # config. Override with PODBOX_GIT_NAME / PODBOX_GIT_EMAIL.
 GIT_NAME="${PODBOX_GIT_NAME:-$(git config --global user.name 2>/dev/null || git config user.name 2>/dev/null || true)}"
 GIT_EMAIL="${PODBOX_GIT_EMAIL:-$(git config --global user.email 2>/dev/null || git config user.email 2>/dev/null || true)}"
-PODBOX_MODEL="${PODBOX_MODEL:-fireworks-ai/accounts/fireworks/models/deepseek-v4p1-flash}"
+PODBOX_MODEL="${PODBOX_MODEL:-fireworks-ai/accounts/fireworks/models/deepseek-v4-pro-0813}"
 # Models labeled in the sandbox model picker: the pinned model plus
 # PODBOX_EXTRA_MODELS (space-separated provider/model ids) get
 # PODBOX_LABEL_SUFFIX appended to their display names.
@@ -350,13 +350,13 @@ ensure_image() {
 
 # --- container setup ---------------------------------------------------------
 
-# The base image already ships git/python/gh/opencode, so these normally no-op.
-# They remain for images built without them, elevating via the sandbox user's
-# passwordless sudo.
+# The base image already ships git/python/node/gh/opencode, so these normally
+# no-op. They remain for images built without them, elevating via the sandbox
+# user's passwordless sudo.
 install_packages() {
   local missing
   missing="$(podman exec --user "$SANDBOX_USER" "$NAME" sh -c '
-    for c in git python3 gcc make curl; do
+    for c in git python3 node npm gcc make curl; do
       command -v "$c" >/dev/null 2>&1 || printf "%s " "$c"
     done
   ')"
@@ -367,9 +367,9 @@ install_packages() {
     set -e
     if command -v apt-get >/dev/null 2>&1; then
       sudo env DEBIAN_FRONTEND=noninteractive apt-get update >/dev/null
-      sudo env DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends git python3 python3-dev python3-pip python3-venv gcc make curl ca-certificates >/dev/null
+      sudo env DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends git python3 python3-dev python3-pip python3-venv nodejs npm gcc make curl ca-certificates >/dev/null
     else
-      sudo dnf -y install git python3 python3-devel python3-pip gcc make curl >/dev/null
+      sudo dnf -y install git python3 python3-devel python3-pip nodejs npm gcc make curl >/dev/null
     fi
   ' || die "package install failed"
 }
