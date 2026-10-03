@@ -5,6 +5,6 @@
   },
   "no-docker": {
     "default": "fireworks-ai/accounts/fireworks/models/deepseek-v4-pro-0813",
-    "heavy": "fireworks-ai/accounts/fireworks/models/glm-5p3"
+    "heavy": "fireworks-ai/accounts/fireworks/models/kimi-k3"
   }
 }

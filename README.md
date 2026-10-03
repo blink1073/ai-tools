@@ -94,7 +94,7 @@ the default, and the `plan` and `reviewer` agents get the heavy model.
 | Profile | Default | Heavy |
 |---|---|---|
 | `docker` | `glm-5p3-flash` | `kimi-k3` |
-| `no-docker` | `deepseek-v4-pro-0813` | `glm-5p3` |
+| `no-docker` | `deepseek-v4-pro-0813` | `kimi-k3` |
 
 A concrete value already in the local config is left alone, so hand-set models
 survive reinstalling. `update.sh` compares the local config against the mapping
