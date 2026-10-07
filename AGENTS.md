@@ -36,7 +36,9 @@ changes.
 
 - `agents/` is the shared layer: `agents/AGENTS.md` installs as
   `~/.claude/CLAUDE.md` and `~/.config/opencode/AGENTS.md`; `agents/hooks/*.py`
-  are installed once and reused. The OpenCode plugin
+  are installed once and reused; `agents/skills/` installs into
+  `~/.claude/skills/` and is mirrored (rsync --delete) into
+  `~/.config/opencode/skills/`. The OpenCode plugin
   (`opencode/plugins/claude-hooks.ts`) shells out to `~/.claude/hooks/`.
 - `update.sh` mirrors skills and plugins with `rsync --delete` (deleting on the
   host deletes here too) and excludes `*evg*`/`*evergreen*` skills:

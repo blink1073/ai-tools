@@ -32,7 +32,7 @@ sandbox CLI is authored here, so `update.sh` leaves `sandbox/` alone.
 
 ## Requirements
 
-- `install.sh`: `jq`, `git`, `npm`
+- `install.sh`: `jq`, `git`, `npm`, `rsync`
 - `update.sh`: `jq`, `git`, `rsync`
 - The sandbox: `podman`, with the base image built by `podbox build`
 

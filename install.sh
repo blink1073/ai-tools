@@ -4,7 +4,7 @@ set -ex
 # Every path below is relative to the repo root.
 cd "$(dirname "$0")"
 
-for cmd in jq git npm; do
+for cmd in jq git npm rsync; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "error: '$cmd' is required but not found on PATH" >&2; exit 1; }
 done
 
@@ -71,6 +71,11 @@ cp opencode/agent/pr-review.md "$opencode_dir/agent/pr-review.md"
 cp opencode/agent/implementer.md "$opencode_dir/agent/implementer.md"
 cp opencode/agent/pr-creator.md "$opencode_dir/agent/pr-creator.md"
 cp agents/AGENTS.md "$opencode_dir/AGENTS.md"
+# Mirror the shared skills for OpenCode too; --delete makes it a true mirror of
+# agents/skills/ (no evg excludes here: evergreen-build-failure-ticket is
+# committed and must deploy).
+mkdir -p "$opencode_dir/skills"
+rsync -a --delete agents/skills/ "$opencode_dir/skills/"
 cp opencode/tui.json "$opencode_dir/tui.json"
 cp opencode/package.json "$opencode_dir/package.json"
 cp opencode/package-lock.json "$opencode_dir/package-lock.json"
