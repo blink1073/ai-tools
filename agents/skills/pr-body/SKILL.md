@@ -1,13 +1,14 @@
 ---
 name: pr-body
-description: Use when asked to create or draft just a pull request body or PR description file (PR-BODY.md), without the full PR preparation flow of linting, committing, and handing over push commands.
+description: Use when asked to create or draft just a pull request body or PR description file (.opencode/PR-BODY.md), without the full PR preparation flow of linting, committing, and handing over push commands.
 ---
 
 # PR Body
 
 ## Overview
 
-One deliverable: the PR body, written to `PR-BODY.md` at the repo root.
+One deliverable: the PR body, written to `.opencode/PR-BODY.md` (creating
+`.opencode/` if needed).
 Everything else — lint runs, commits, push, `gh pr create` — belongs to
 `pr-creation`; this skill starts at the diff and ends at the file.
 
@@ -24,7 +25,7 @@ Everything else — lint runs, commits, push, `gh pr create` — belongs to
    each file or each tweak its own.
 4. **Prose pass, then write once.** **REQUIRED SUB-SKILL:** run the
    `prose` checklist over every word of the draft — headings, bullets,
-   sentences — fix what fails, and only then create `PR-BODY.md`.
+   sentences — fix what fails, and only then create `.opencode/PR-BODY.md`.
    Write the finished body in one pass; don't draft into the file and
    edit it there.
 
@@ -38,5 +39,5 @@ push and PR commands; don't run them.
 | Four-plus bullets because the diff is big | Cap at three; merge or cut claims |
 | Bullets naming files or parameters | Describe the outcome the reviewer cares about |
 | Skipping the prose pass on a short body | Prose runs on every draft, before the file is written |
-| Writing to `.opencode/PR-BODY.md` or `pr-body.md` | `PR-BODY.md` at the repo root, exact name |
+| Writing to `PR-BODY.md` at the repo root or `pr-body.md` | `.opencode/PR-BODY.md`, exact path and name |
 | Running lint or `gh pr create` | That is `pr-creation`; stop at the file |
