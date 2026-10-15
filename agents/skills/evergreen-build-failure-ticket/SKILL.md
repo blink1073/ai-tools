@@ -1,6 +1,6 @@
 ---
 name: evergreen-build-failure-ticket
-description: Use when given a link to a failing Evergreen or Spruce task and a build-failure ticket is needed, before drafting the ticket body.
+description: Use when investigating a failing Evergreen or Spruce task — pasted spruce.corp.mongodb.com or evergreen.mongodb.com task links, "investigate this build failure", a red CI task, or an empty TICKET.md template staged in the checkout — before drafting the build-failure ticket body.
 ---
 
 # Evergreen Build Failure Ticket
@@ -86,6 +86,11 @@ task* — Spruce URL; *Context of when and why the failure occurred* —
 verdict and evidence (revisions, dates, counts); *Stack trace* — log
 tail in `{code}`.
 
+Keep the draft high-level: what failed, its impact, and the evidence a
+triager needs. Leave out implementation details. Do not speculate
+about root-cause mechanisms, propose fixes, or narrate how the code
+works. Name a suspected change by ticket key at most.
+
 **Stop at the draft. Never call `jira_create_issue`** — filing is the
 user's action.
 
@@ -111,3 +116,4 @@ from the draft.
 | Filing the ticket | Draft only — hand it over |
 | Drafting from one task because it looks obvious | Fetch history — that's the verdict's point |
 | Drafting for a non-failing task | Check `status`; ask if green or running |
+| Filling the draft with mechanism theories or proposed fixes | High-level only: what failed, impact, evidence. Name a suspected change by key at most |

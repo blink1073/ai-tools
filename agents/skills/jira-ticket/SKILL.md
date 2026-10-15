@@ -1,12 +1,19 @@
 ---
 name: jira-ticket
-description: Use when drafting a JIRA ticket for a bug, task, feature, or build/CI failure, before or while writing the ticket body.
+description: Use when drafting a JIRA ticket for a bug, task, feature, or build/CI failure — including Evergreen/Spruce build failures — before or while writing the ticket body.
 ---
 
 # JIRA Ticket
 
 **REQUIRED SUB-SKILL:** Use the `issue` skill first (which itself uses
 `prose`), then apply the rules below.
+
+**REQUIRED SUB-SKILL:** If the ticket is for a failing Evergreen or Spruce
+task (a Spruce/Evergreen link is in play), first use
+`evergreen-build-failure-ticket` — it gathers the task data, the
+regression-vs-flake verdict, and the duplicate check; this skill then
+renders the draft with the template pre-resolved to
+`build-failure-template.txt`, which must not re-ask.
 
 ## Overview
 
@@ -58,6 +65,12 @@ When presenting the draft, show the title alongside the body — not just
 the body. If the ticket's repository is `drivers-evergreen-tools`
 specifically (not `drivers-github-tools`), prefix the title with
 `[Evergreen Tools] ` at draft time, ahead of the rest of the summary.
+
+## Body content
+
+Keep the body high-level: the problem, its impact, and the evidence.
+Leave implementation details and proposed fixes out. A code name names
+the subject; it does not narrate how the code works.
 
 ## Creating the ticket
 
@@ -122,4 +135,5 @@ template implies separate fields. No doubled blank lines.
 | Filing a `drivers-evergreen-tools` ticket outside the DRIVERS project | Always DRIVERS for this repo |
 | Dropping the `[Evergreen Tools]` title prefix for `drivers-evergreen-tools` | Prefix it at draft time, before presenting the title |
 | Showing only the body when presenting a draft | Present the title alongside the body |
+| Filling the body with implementation detail or a proposed fix | High-level only: problem, impact, evidence |
 | Skipping the Driver Changes prompt for `drivers-evergreen-tools` | Ask, defaulting to `Not Needed` |
