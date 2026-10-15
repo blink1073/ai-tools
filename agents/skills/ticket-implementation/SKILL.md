@@ -25,7 +25,7 @@ reasoning itself.
 | Phase | Who does it | Model | Output to disk |
 |---|---|---|---|
 | Planning | Top-level session | Heavy | PLAN.md in the checkout root |
-| Implementing | `implementer` sub-agent | Light | Working tree and commits |
+| Implementing | `implementer` sub-agent | Light | Working tree and prepared commits |
 | Review - Local Bot | `reviewer` sub-agent, invoked by `implementer` | Heavy | `.opencode/REVIEW.md` |
 | Review - Self | `pr-creator` sub-agent, dispatched by the conductor | Light | `.opencode/PR-BODY.md` |
 | Review - Automated tools | Conductor | Light | Push toward the upstream PR |
@@ -171,7 +171,7 @@ phase starts.
      `pr-creator` sub-agent to prepare the draft fork PR — for security
      bugs, a **private GHSA fork**. The sub-agent runs the `pr-creation`
      skill, which uses `pr-description` for the content and hands the user
-     the push and `gh pr create` commands to run; don't invoke
+     the commit, push, and `gh pr create` commands to run; don't invoke
      `pr-description` or `pr-creation` directly and skip the sub-agent. When
      the draft PR is open, record its **Fork PR** URL in the ledger,
      check off **Review - Self**, and set the next action to start the
@@ -193,7 +193,7 @@ phase starts.
 | Continuing before the reviewer sub-agent wrote REVIEW.md | Read `.opencode/REVIEW.md` and confirm it exists first |
 | Treating the plan as a gist to publish | Plans live at the repo root as `PLAN.md`, not a gist |
 | Re-explaining a sub-skill's process inline instead of invoking it | Invoke the sub-skill; don't duplicate its process here |
-| Invoking `pr-description` or `pr-creation` directly to open the PR | Dispatch the `pr-creator` sub-agent instead — it runs `pr-creation`, which handles the description via `pr-description` itself |
+| Invoking `pr-description` or `pr-creation` directly to prepare the PR | Dispatch the `pr-creator` sub-agent instead — it runs `pr-creation`, which handles the description via `pr-description` itself |
 | Skipping `/review` or addressing review comments without user sign-off | Run the staged review loop; the user owns responses |
 | Writing PLAN.md anywhere but the repo root, or the other files outside `.opencode/` | PLAN.md at the root; REVIEW.md, LEDGER.md, NOTES.md, and REVIEW_STATE.md in `.opencode/` |
 | Committing a work product | `.opencode/` is gitignored and PLAN.md is locally excluded; never `git add` either |

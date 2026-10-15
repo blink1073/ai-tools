@@ -25,11 +25,11 @@ gets dropped if there's no gist.
 3. **Resolve the gist.**
    - A gist already exists in the session for this work: ask whether to
      include it.
-   - No gist exists: ask whether to create one (from whatever
+   - No gist exists: ask whether to prepare one (from whatever
      implementation plan/spec exists in context — show the content and
-     get explicit confirmation before running `gh gist create --secret`,
-     since creating a gist publishes content), link an existing gist by
-     URL, or skip.
+     get explicit confirmation before handing over the
+     `gh gist create --secret` command, since creating a gist publishes
+     content; the user runs it), link an existing gist by URL, or skip.
 4. **Fill the template**, describing the problem and desired state only.
    Anything that describes "how to fix it" belongs in the gist (if any)
    or gets dropped — never write it into the issue body.

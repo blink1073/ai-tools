@@ -56,11 +56,28 @@
           },
           {
             "type": "command",
+            "command": "python3 \"$HOME/.claude/hooks/check_gh_write.py\""
+          },
+          {
+            "type": "command",
             "command": "python3 \"$HOME/.claude/hooks/check_git_add.py\""
           },
           {
             "type": "command",
             "command": "python3 \"$HOME/.claude/hooks/check_git_commit.py\""
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.claude/hooks/check_git_push.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.claude/hooks/check_jira_write.py\""
           }
         ]
       }

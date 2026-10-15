@@ -7,8 +7,8 @@ description: Use when addressing review comments on a pull request, before makin
 
 ## Overview
 
-Review comments get validated before they get fixed, fixes get pushed
-once as a single round, and responses only get drafted when asked —
+Review comments get validated before they get fixed, fixes land as one
+commit round the user runs, and responses only get drafted when asked —
 never unprompted, and never posted.
 
 ## Workflow
@@ -61,11 +61,12 @@ straight to step 4 for that one comment, then step 5, then step 6. Steps
      regression coverage.
    - **Not valid:** make no code change. Note why — that's what a
      drafted response explains later.
-5. **Ask once.** After every remaining comment is processed, ask
-   whether to commit and push the accumulated fixes as one round.
-   Confirm before the push. Before committing, if a justfile exists,
-   run `just lint`. **REQUIRED SUB-SKILL:** `just-lint-retry` governs
-   handling a failure (same rule `pr-creation` uses).
+5. **Ask once.** After every remaining comment is processed, ask whether
+   to prepare the accumulated fixes as one commit round. If yes, run
+   `just lint` first when a justfile exists — **REQUIRED SUB-SKILL:**
+   `just-lint-retry` governs handling a failure (same rule `pr-creation`
+   uses) — then hand the user the exact `git add`/`git commit`/
+   `git push` commands; committing and pushing are the user's actions.
 6. **Per remaining comment, in order, ask about a response.** "Want a
    drafted response to this one?" Only draft if yes — never unprompted.
    **REQUIRED SUB-SKILL:** `prose` governs the drafted text. Never post
@@ -78,7 +79,7 @@ straight to step 4 for that one comment, then step 5, then step 6. Steps
 |---|---|
 | Applying a suggested fix without confirming the concern is real | Validate first; add a test if it would help confirm |
 | Adding the confirming test after the fix instead of before | Test-first — it's the reproduction step, not an afterthought |
-| Committing/pushing after each individual fix | One push, after all comments are processed |
+| Committing/pushing after each individual fix | One commit round, handed to the user after all comments are processed |
 | Posting a reply directly to a review thread | Never — draft only, and only when asked |
 | Drafting a response before being asked | Ask per comment first; draft only on yes |
 | Processing a resolved thread or an already-answered comment | Filter those out before validation |

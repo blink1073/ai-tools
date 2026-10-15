@@ -72,13 +72,15 @@ Keep the body high-level: the problem, its impact, and the evidence.
 Leave implementation details and proposed fixes out. A code name names
 the subject; it does not narrate how the code works.
 
-## Creating the ticket
+## Filing handoff
 
-Once the body is drafted and approved, ask whether to create the ticket now.
-If the user declines, stop — the drafted body is the deliverable.
+The user files the ticket; the agent never calls `jira_create_issue` —
+not even when asked to file. Jira writes are the user's actions. Once
+the body is drafted and approved, gather the filing fields, then present
+the complete package: project, issue type, title, body, fields, and the
+exact `jira_create_issue` call that files it, for the user to run.
 
-If they want it created, prompt for these fields before calling
-`jira_create_issue`:
+Prompt for these fields:
 
 1. **Priority** — ask the user to pick one: `Minor - P4`, `Major - P3`, or
    `Unknown`.
@@ -90,20 +92,20 @@ If they want it created, prompt for these fields before calling
 ### `drivers-evergreen-tools` override
 
 If the ticket's repository is `drivers-evergreen-tools` specifically (not
-`drivers-github-tools`), before calling `jira_create_issue`:
+`drivers-github-tools`), the handed-over package is:
 
-- Always use the **DRIVERS** project — don't ask.
+- Always the **DRIVERS** project — don't ask.
 - The title already carries the `[Evergreen Tools] ` prefix from the
   draft stage — use it as-is.
-- Set Component to **Evergreen Tools** automatically — skip the Component
+- Component set to **Evergreen Tools** automatically — skip the Component
   prompt above.
-- Ask for a **Driver Changes** field, defaulting to `Not Needed`; also
-  offer `Needed - No Spec Changes` as an option.
+- A **Driver Changes** field, defaulting to `Not Needed`; also offer
+  `Needed - No Spec Changes` as an option.
 
 Still ask Priority and Labels normally for this repo.
 
 Use `jira_get_fields` to resolve the exact field IDs for Component,
-Priority, and Driver Changes before calling `jira_create_issue`.
+Priority, and Driver Changes for the handed-over call.
 
 ## Markup
 
@@ -130,7 +132,8 @@ template implies separate fields. No doubled blank lines.
 | Filing a red CI job under `bug-template` | `bug-template` is for product behavior; a broken pipeline is `build-failure-template` |
 | Inferring template from ticket content in `drivers-evergreen-tools`/`drivers-github-tools` for a non-failure ticket | Repo name overrides content — use `drivers-template` |
 | Using `drivers-template` for a red CI job in `drivers-evergreen-tools`/`drivers-github-tools` | Build failures always use `build-failure-template`, even in these repos |
-| Calling `jira_create_issue` without asking Priority/Component/Labels | Prompt for all three first (Component skipped only for `drivers-evergreen-tools`) |
+| Calling `jira_create_issue` | Never — hand the user the prepared package and the call to run (Filing handoff above; Component skipped only for `drivers-evergreen-tools`) |
+| Offering to file the ticket after the user approves the body | Filing is the user's action even when asked — gather fields, present the package, stop |
 | Prompting for Component in `drivers-evergreen-tools` | Auto-set to `Evergreen Tools`, don't ask |
 | Filing a `drivers-evergreen-tools` ticket outside the DRIVERS project | Always DRIVERS for this repo |
 | Dropping the `[Evergreen Tools]` title prefix for `drivers-evergreen-tools` | Prefix it at draft time, before presenting the title |

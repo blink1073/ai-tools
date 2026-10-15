@@ -2,12 +2,22 @@
 
 Git repositories live in `$HOME/workspace`, one directory per repo.
 
+## Jira and GitHub Are Read-Only
+
+Read, search, and inspect Jira and GitHub freely. Never create, edit,
+comment on, transition, link, attach, push to, merge, or open anything
+on either — not even with permission; filing, commenting, and merging are
+the user's actions. When a workflow reaches a state-changing step, stop and
+hand the user the exact commands or paste-ready text instead. The same goes
+for state-changing git steps: prepare the `git add`/`git commit`/
+`git push` commands for the user to run rather than running them.
+
 ## Pull Requests
 
 Agents prepare PRs, they don't open them. Always create PRs through the
 `pr-creator` sub-agent: it runs the `pr-creation` skill, writes the body to
-`.opencode/PR-BODY.md`, and gives the user the push and `gh pr create`
-commands to run from the host.
+`.opencode/PR-BODY.md`, and gives the user the commit, push, and
+`gh pr create` commands to run from the host.
 
 ## Prose Is Skill-Gated
 

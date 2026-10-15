@@ -30,38 +30,42 @@ user asks; let the team review stand on its own.
 
 ## Workflow
 
-1. **Open a PR against upstream, or reuse the upstream PR if one already
+1. **Prepare a PR against upstream, or reuse the upstream PR if one already
    exists.** If the upstream PR for this branch is already open, use it;
-   otherwise dispatch the `pr-creator` sub-agent to prepare the push and
-   upstream PR — it runs `pr-creation`, which uses `pr-description` for the
-   content and hands the user the commands to run. Record the
-   **Upstream PR** URL in the ticket ledger at `.opencode/LEDGER.md`
-   (creating the ledger if it does not exist,
+   otherwise dispatch the `pr-creator` sub-agent to prepare the commit,
+   push, and upstream PR — it runs `pr-creation`, which uses
+   `pr-description` for the content and hands the user the commands to
+   run. Record the **Upstream PR** URL in the ticket ledger at
+   `.opencode/LEDGER.md` (creating the ledger if it does not exist,
    using the `ticket-implementation` format) and check off the relevant
    item, per `ticket-implementation`.
 2. **Clear bots and automated tools.** Address the CI and bot comments
    as they arrive, using `pr-review-response`. Fix what fails; do not
    suppress a real failure.
-3. **Present for review.** Once the automated checks are clear, mark the
-   PR ready for review and update the JIRA ticket to Code Review with
-   the PR link (see `jira-ticket` for the transition).
+3. **Present for review.** Once the automated checks are clear, hand the
+   user the commands to run: `gh pr ready <number>` to mark the PR ready
+   for review, and the JIRA transition to Code Review with the PR link
+   (see `jira-ticket` for the transition). The user runs them.
 4. **Coach team review.** The team reviews; the user coordinates with
    the bot. `pr-review-response` governs each reply. The user decides
    on every response. Only run the local bot reviewer (`reviewer`
    sub-agent, producing `.opencode/REVIEW.md`) if the user explicitly
    asks;
    otherwise leave team review to the team.
-5. **Close.** Comments addressed, PR merged, JIRA to Closed.
+5. **Close.** Comments addressed; hand the user the merge command and
+   the JIRA-to-Closed transition — merging and closing are the user's
+   actions.
 
 ## Stop and ask
 
 Pause and ask rather than guessing when: the upstream PR cannot be
-opened, an automated check fails in a way you cannot explain, or a team
+prepared, an automated check fails in a way you cannot explain, or a team
 comment conflicts with the user's earlier decision.
 
 ## Red flags
 
-Never merge or close without the user. Never suppress a failing check.
+Never merge, close, transition JIRA, or mark a PR ready — hand the user
+the commands and they run them. Never suppress a failing check.
 Never answer a review comment in a way the user has not approved.
 
 ## Common Mistakes
@@ -70,7 +74,7 @@ Never answer a review comment in a way the user has not approved.
 |---|---|
 | Continuing the implementing session into upstream review | Start a new session; this skill is the entry point |
 | Asking the user for the PR link | Infer it from the branch with `gh pr view` |
-| Opening a second upstream PR when one already exists for the branch | Use the existing upstream PR; only open one if none exists |
+| Opening a second upstream PR when one already exists for the branch | Use the existing upstream PR; only prepare one if none exists |
 | Suppressing or "fixing" an automated failure by weakening the test | Address the real cause; keep the check honest |
-| Marking the PR ready before checks are clear | Clear bots and automated tools first |
+| Handing over `gh pr ready` before checks are clear | Clear bots and automated tools first |
 | Answering a review comment without user approval | The user owns every response; you draft, they decide |

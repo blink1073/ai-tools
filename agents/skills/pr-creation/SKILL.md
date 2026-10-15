@@ -1,6 +1,6 @@
 ---
 name: pr-creation
-description: Use when preparing a GitHub pull request. The pr-creator sub-agent runs it; the conductor dispatches that agent rather than invoking this skill directly. Writes the body to .opencode/PR-BODY.md and hands the user the push and gh pr create commands to run from the host; never runs them here.
+description: Use when preparing a GitHub pull request. The pr-creator sub-agent runs it; the conductor dispatches that agent rather than invoking this skill directly. Writes the body to .opencode/PR-BODY.md and hands the user the commit, push, and gh pr create commands to run from the host; never runs them here.
 ---
 
 # PR Creation
@@ -19,16 +19,18 @@ Agents prepare pull requests, they don't open them. Write the body to
    - `just typing` fails: no retry. A type error isn't auto-fixed by
      re-running the check. Stop here and report it.
    - No justfile: skip pre-flight checks entirely.
-   - If pre-flight checks modified any files, commit them with the rest of
-     the change in step 3.
+   - If pre-flight checks modified any files, fold them into the prepared
+     commit command in step 3.
 2. **Run the prose pass over the PR's prose.** **REQUIRED SUB-SKILL:**
    `prose` over every docstring, comment, and documentation file the PR
    adds or changes. Find the changed files with `git diff --name-only
    <merge-base>..HEAD` against the default branch, then read each one and
    fix prose that fails the `prose` checklist. Where the PR edits a
    docstring, **REQUIRED SUB-SKILL:** `docstrings` governs it.
-3. **Commit, don't push.** Commit the work. Never push the branch and never
-   run `gh pr create`.
+3. **Prepare the commit, don't run it.** Prepare the `git add`/
+   `git commit` commands for the work. Never commit, never push the
+   branch, never run `gh pr create` — the commands go to the user in
+   step 7.
 4. **Write the body.** **REQUIRED SUB-SKILL:** `pr-description` finds the
    PR template and its structure. Keep it high-level and prose-governed.
    When the template has a changes section or a test
@@ -49,6 +51,8 @@ Agents prepare pull requests, they don't open them. Write the body to
    Target upstream:
 
    ```bash
+   git add <changed files>
+   git commit -m "<message>"
    git push -u origin <branch>
    gh pr create --draft --repo <upstream-owner>/<repo> --base <default> \
      --head <fork-owner>:<branch> --title "<title>" \
@@ -64,7 +68,7 @@ Agents prepare pull requests, they don't open them. Write the body to
 | Mistake | Fix |
 |---|---|
 | Running `gh pr create` | Write the body and hand the user the command |
-| Pushing the branch | Put the push in the handed-over command instead |
+| Committing or pushing the branch | Put the commit and push in the handed-over commands instead |
 | Writing `.opencode/pr-body.md` | Use `.opencode/PR-BODY.md` |
 | More than 3 bullets in changes or test sections | Cap each at 1 to 3 bullets |
 | Skipping the origin-PR check | Check first; an existing fork PR means target upstream |
@@ -73,5 +77,5 @@ Agents prepare pull requests, they don't open them. Write the body to
 | Treating a missing `just` recipe as a failure | Skip it silently; only a real failure stops the PR |
 | Running `just lint`/`just typing` when there's no justfile | Skip pre-flight checks entirely |
 | Retrying `just typing` after a failure | Don't; type errors aren't auto-fixed by re-running |
-| Leaving pre-flight changes uncommitted | Commit them with the change in step 3 |
+| Leaving pre-flight changes out of the handed-over commit | Fold them into the prepared commit command |
 | Reformatting the body after drafting it | Apply the cap while drafting, then write the file once |

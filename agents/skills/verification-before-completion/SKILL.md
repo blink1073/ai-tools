@@ -56,7 +56,7 @@ Skip any step and you are lying, not verifying.
 - Using "should", "probably", "seems to"
 - Expressing satisfaction before verifying ("Great!", "Perfect!",
   "Done!")
-- About to commit, push, or open a PR without verification
+- About to hand over commit, push, or PR commands without verification
 - Trusting an agent's success report
 - Relying on partial verification
 - Thinking "just this once"
@@ -85,6 +85,6 @@ red-green verification there is no regression test.
 ## Apply
 
 Always, before: any success or completion claim, any expression of
-satisfaction, any positive statement about the work, committing, opening
-a PR, marking a task complete, moving to the next task, or delegating to
-a sub-agent.
+satisfaction, any positive statement about the work, handing over commit
+or push or PR commands, marking a task complete, moving to the next
+task, or delegating to a sub-agent.

@@ -18,7 +18,9 @@ The repo is public. When asked to commit changes to `~/.claude`:
    addresses, credentials, and descriptions of internal tooling or auth
    setup. Report what you find and let me decide rather than editing it out.
 2. Run `update.sh` from the repo root.
-3. Read `git status` and `git diff` before committing. The script copies
-   whatever is currently on disk, so unrelated local edits ride along. Name
-   them.
-4. Ask before pushing to origin.
+3. Read `git status` and `git diff` before preparing the commit. The
+   script copies whatever is currently on disk, so unrelated local edits
+   ride along. Name them.
+4. Hand the user the exact `git add`/`git commit`/`git push` commands —
+   committing and pushing are the user's actions, even when they asked
+   for the commit.

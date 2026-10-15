@@ -1,6 +1,6 @@
 ---
 name: pr-body
-description: Use when asked to create or draft just a pull request body or PR description file (.opencode/PR-BODY.md), without the full PR preparation flow of linting, committing, and handing over push commands.
+description: Use when asked to create or draft just a pull request body or PR description file (.opencode/PR-BODY.md), without the full PR preparation flow of linting and handing over commit, push, and gh pr create commands.
 ---
 
 # PR Body
@@ -30,7 +30,9 @@ Everything else — lint runs, commits, push, `gh pr create` — belongs to
    edit it there.
 
 Stop after the file exists. Report its path and hand the user the
-push and PR commands; don't run them.
+commit, push, and PR commands; don't run them. If the branch has
+uncommitted work, include the `git add`/`git commit` commands, matching
+`pr-creation`'s handover block.
 
 ## Common Mistakes
 

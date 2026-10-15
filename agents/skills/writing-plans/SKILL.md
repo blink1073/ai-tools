@@ -65,7 +65,7 @@ deliverable.
 
 Each step is one action, a few minutes each: write the failing test, run
 it to confirm it fails, implement the minimal code, run the tests to
-confirm they pass, commit.
+confirm they pass, prepare the commit command.
 
 ## PLAN.md format
 
@@ -110,7 +110,7 @@ Then one section per task:
       (paste the actual code)
 - [ ] **Step 4: Run it and confirm it passes**
       Run: same command; Expected: PASS
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Prepare the commit**
       (paste the git add and commit commands)
 ```
 
