@@ -29,7 +29,9 @@ if [ -f ~/.claude/settings.json ]; then
 else
   cp claude/settings.json ~/.claude/settings.json
 fi
-cp agents/hooks/* ~/.claude/hooks/
+# Only the .py files: the glob must not pick up __pycache__, where a
+# non-recursive cp fails and set -e aborts the install.
+cp agents/hooks/*.py ~/.claude/hooks/
 cp -r agents/skills/* ~/.claude/skills/
 
 # OpenCode

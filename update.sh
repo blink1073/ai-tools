@@ -20,7 +20,9 @@ jq --argjson allow "$allow" --argjson deny "$deny" \
   '.permissions.allow = $allow | .permissions.deny = $deny' \
   claude/settings.json > claude/settings.json.tmp
 mv claude/settings.json.tmp claude/settings.json
-cp ~/.claude/hooks/* agents/hooks/
+# Only the .py files: the glob must not pick up __pycache__, where a
+# non-recursive cp fails and set -e aborts the sync.
+cp ~/.claude/hooks/*.py agents/hooks/
 mkdir -p agents/skills
 # Mirror, so a skill deleted from ~/.claude is deleted here too.
 # Excludes evg/evergreen skills: they're work-machine-only, not for the public repo.
