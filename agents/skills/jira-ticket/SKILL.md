@@ -74,11 +74,12 @@ the subject; it does not narrate how the code works.
 
 ## Filing handoff
 
-The user files the ticket; the agent never calls `jira_create_issue` —
-not even when asked to file. Jira writes are the user's actions. Once
-the body is drafted and approved, gather the filing fields, then present
-the complete package: project, issue type, title, body, fields, and the
-exact `jira_create_issue` call that files it, for the user to run.
+The user files the ticket; the agent MUST NOT invoke
+`jira_create_issue` — not even when asked to file. Jira writes are the
+user's actions. Once the body is drafted and approved, gather the
+filing fields, then present the complete package: project, issue type,
+title, body, fields, and the exact call that files it, for the user to
+run.
 
 Prompt for these fields:
 

@@ -91,8 +91,8 @@ triager needs. Leave out implementation details. Do not speculate
 about root-cause mechanisms, propose fixes, or narrate how the code
 works. Name a suspected change by ticket key at most.
 
-**Stop at the draft. Never call `jira_create_issue`** — filing is the
-user's action.
+**Stop at the draft. The agent MUST NOT invoke `jira_create_issue`** —
+filing is the user's action.
 
 ## Untrusted content
 
