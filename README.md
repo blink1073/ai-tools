@@ -101,7 +101,13 @@ the default, and the `plan` and `reviewer` agents get the heavy model.
 | Profile | Default | Heavy |
 |---|---|---|
 | `docker` | `deepseek-v4p1-flash` | `glm-5p3` |
-| `no-docker` | `deepseek-v4-pro-0813` | `kimi-k3` |
+| `no-docker` | `glm-5p3-flash` | `deepseek-v4p1-flash` (`high` variant) |
+
+A profile may set `heavy_variant` (e.g. `high`): `install.sh` writes it as the
+`variant` field on the `plan` and `reviewer` agents, which opencode sends as
+the model's reasoning effort. The template carries no variant placeholder;
+the value lives only in `opencode/models.json`, and `update.sh` adopts
+hand-set variants the same way it adopts models.
 
 A concrete value already in the local config is left alone, so hand-set models
 survive reinstalling. `update.sh` compares the local config against the mapping

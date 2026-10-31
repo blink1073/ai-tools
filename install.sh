@@ -47,6 +47,10 @@ else
 fi
 default_model=$(jq -r --arg p "$model_profile" '.[$p].default' opencode/models.json)
 heavy_model=$(jq -r --arg p "$model_profile" '.[$p].heavy' opencode/models.json)
+# Optional reasoning-effort level for the heavy model. opencode takes it as a
+# separate agent `variant` field; a `#variant` suffix on the model id is
+# rejected as an unknown model.
+heavy_variant=$(jq -r --arg p "$model_profile" '.[$p].heavy_variant // empty' opencode/models.json)
 
 if [ -f "$opencode_dir/opencode.json" ]; then
   tmp=$(mktemp)
@@ -59,12 +63,19 @@ else
 fi
 # Fill the placeholders from the chosen profile. A concrete value already in
 # the local config is left alone, so a hand-set model survives reinstalling.
+# The variant rides in models.json (heavy_variant), not the template, and is
+# only written when the profile sets one; a hand-set variant is left alone.
 tmp=$(mktemp)
-jq --arg default "$default_model" --arg heavy "$heavy_model" '
+jq --arg default "$default_model" --arg heavy "$heavy_model" --arg variant "$heavy_variant" '
   def empty_slot: . == null or (type == "string" and startswith("__"));
-  .model = (if (.model | empty_slot) then $default else .model end)
-  | .agent.plan.model = (if (.agent.plan.model | empty_slot) then $heavy else .agent.plan.model end)
-  | .agent.reviewer.model = (if (.agent.reviewer.model | empty_slot) then $heavy else .agent.reviewer.model end)
+  def fill($slot; $val): if ($slot | empty_slot) then $val else $slot end;
+  .model = fill(.model; $default)
+  | .agent.plan.model = fill(.agent.plan.model; $heavy)
+  | .agent.reviewer.model = fill(.agent.reviewer.model; $heavy)
+  | (if $variant != "" then
+       .agent.plan.variant = fill(.agent.plan.variant; $variant)
+       | .agent.reviewer.variant = fill(.agent.reviewer.variant; $variant)
+     else . end)
 ' "$opencode_dir/opencode.json" > "$tmp"
 mv "$tmp" "$opencode_dir/opencode.json"
 mkdir -p "$opencode_dir/agent"
