@@ -41,36 +41,28 @@ else
 fi
 local_default=$(jq -r '.model // empty' "$opencode_dir/opencode.json")
 local_heavy=$(jq -r '.agent.plan.model // .agent.reviewer.model // empty' "$opencode_dir/opencode.json")
-local_variant=$(jq -r '.agent.plan.variant // .agent.reviewer.variant // empty' "$opencode_dir/opencode.json")
 map_default=$(jq -r --arg p "$model_profile" '.[$p].default' opencode/models.json)
 map_heavy=$(jq -r --arg p "$model_profile" '.[$p].heavy' opencode/models.json)
-map_variant=$(jq -r --arg p "$model_profile" '.[$p].heavy_variant // empty' opencode/models.json)
 # Only adopt concrete values. A missing model or a leftover placeholder means
-# the local config isn't the source of truth for this machine. An empty local
-# variant adopts as a removal, so hand-clearing it is recorded too.
+# the local config isn't the source of truth for this machine.
 if [ -n "$local_default" ] && [ -n "$local_heavy" ] &&
    [ "${local_default#__}" = "$local_default" ] &&
    [ "${local_heavy#__}" = "$local_heavy" ] &&
-   { [ "$local_default" != "$map_default" ] || [ "$local_heavy" != "$map_heavy" ] ||
-     [ "$local_variant" != "$map_variant" ]; }; then
+   { [ "$local_default" != "$map_default" ] || [ "$local_heavy" != "$map_heavy" ]; }; then
   tmp=$(mktemp)
   jq --arg p "$model_profile" --arg default "$local_default" --arg heavy "$local_heavy" \
-     --arg variant "$local_variant" '
-    .[$p].default = $default | .[$p].heavy = $heavy
-    | (if $variant == "" then del(.[$p].heavy_variant) else .[$p].heavy_variant = $variant end)
-  ' \
+    '.[$p].default = $default | .[$p].heavy = $heavy' \
     opencode/models.json > "$tmp"
   mv "$tmp" opencode/models.json
 fi
 
 mkdir -p opencode/plugins
-# Sync the repo template back with placeholders intact; the concrete values
-# live only in opencode/models.json. The variant is deliberately absent from
-# the template: install.sh re-derives it from models.json's heavy_variant, so
-# no placeholder is needed for it.
+# Sync the repo template back with placeholders intact; the concrete model
+# values live only in opencode/models.json. The variant is static (same on
+# every profile), so the rewrite pins it rather than deriving it.
 jq '{ "$schema": (."$schema"),
       model: "__DEFAULT_MODEL__",
-      agent: { plan: { model: "__HEAVY_MODEL__" },
+      agent: { plan: { model: "__HEAVY_MODEL__", variant: "high" },
                reviewer: { model: "__HEAVY_MODEL__" } },
       permission: { bash: .permission.bash } }' \
   "$opencode_dir/opencode.json" > opencode/opencode.json

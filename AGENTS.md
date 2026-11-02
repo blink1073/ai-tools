@@ -23,11 +23,12 @@ changes.
   `opencode/models.json`. `install.sh` fills placeholders (profile is `docker`
   when `docker` is on PATH, else `no-docker`) and leaves hand-set models alone;
   `update.sh` restores the placeholders and adopts hand-set values into
-  `models.json`. A profile's optional `heavy_variant` (a reasoning-effort
-  level like `high`) becomes the `variant` field on the `plan` and `reviewer`
-  agents; opencode rejects a `#variant` suffix on a model id, so the variant
-  must be that separate field, and it round-trips through `models.json` the
-  same way the model ids do.
+  `models.json`. The `variant: high` on the `plan` and `reviewer` agents is
+  static, not per-profile: it is pinned in the template's `agent.plan` block
+  (the built-in plan agent has no file, so config is the only way to set its
+  fields) and in `opencode/agent/reviewer.md`'s frontmatter; opencode rejects
+  a `#variant` suffix on a model id, so it must be that separate field.
+  `update.sh` pins the template's variant the same way it pins placeholders.
 - `claude/settings.json` tracks only the Bash allow/deny lists. `update.sh`
   deliberately never syncs the whole `~/.claude/settings.json`, because the
   live file can carry env vars, API keys, and model routing that must not be
