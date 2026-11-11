@@ -53,6 +53,10 @@ resolution, no per-branch subdirectories:
   agent maintains: the watermark and each handled comment or check. It
   carries across sessions, unlike the ledger, which resets per ticket.
   See `pr-review` for the format.
+- `.opencode/TICKET.md` — the drafted ticket body and filing fields
+  (project, type, title, priority, component, labels, links). Skills
+  that draft a ticket write it here, never at the repo root —
+  `.opencode/` is gitignored, so no exclude-file workaround.
 
 `.opencode/` is gitignored, and PLAN.md is excluded from git locally
 (`.git/info/exclude`), so plans, reviews, ledgers, notes, and review
@@ -195,6 +199,6 @@ phase starts.
 | Re-explaining a sub-skill's process inline instead of invoking it | Invoke the sub-skill; don't duplicate its process here |
 | Invoking `pr-description` or `pr-creation` directly to prepare the PR | Dispatch the `pr-creator` sub-agent instead — it runs `pr-creation`, which handles the description via `pr-description` itself |
 | Skipping `/review` or addressing review comments without user sign-off | Run the staged review loop; the user owns responses |
-| Writing PLAN.md anywhere but the repo root, or the other files outside `.opencode/` | PLAN.md at the root; REVIEW.md, LEDGER.md, NOTES.md, and REVIEW_STATE.md in `.opencode/` |
+| Writing PLAN.md anywhere but the repo root, or the other files outside `.opencode/` | PLAN.md at the root; REVIEW.md, LEDGER.md, NOTES.md, TICKET.md, and REVIEW_STATE.md in `.opencode/` |
 | Committing a work product | `.opencode/` is gitignored and PLAN.md is locally excluded; never `git add` either |
 | Leaving the session checklist unchecked as phases finish | Flip each item to `[x]` when its phase completes; the ledger is the durable progress record |

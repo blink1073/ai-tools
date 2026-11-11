@@ -81,6 +81,10 @@ instead.
 State these for filing: summary `[BF] <bare test name>`, issue type
 `Build Failure`, label `greenerbuild`.
 
+Write the draft to `.opencode/TICKET.md` — the staged template's
+location — then present it. Same fixed path as
+`ticket-implementation`'s work-file locations.
+
 Template fields: *Name of Failure* — task and failing test; *Link to
 task* — Spruce URL; *Context of when and why the failure occurred* —
 verdict and evidence (revisions, dates, counts); *Stack trace* — log

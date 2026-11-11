@@ -105,6 +105,11 @@ If the ticket's repository is `drivers-evergreen-tools` specifically (not
 
 Still ask Priority and Labels normally for this repo.
 
+Working in a checkout: write the complete package (title, fields, body)
+to `.opencode/TICKET.md` so a later session can file or re-derive it —
+see `ticket-implementation`'s work-file locations. No checkout:
+present the draft in the conversation only.
+
 Use `jira_get_fields` to resolve the exact field IDs for Component,
 Priority, and Driver Changes for the handed-over call.
 
